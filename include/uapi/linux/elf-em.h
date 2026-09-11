@@ -31,6 +31,7 @@
 #define EM_X86_64	62	/* AMD x86-64 */
 #define EM_S390		22	/* IBM S/390 */
 #define EM_CRIS		76	/* Axis Communications 32-bit embedded processor */
+#define EM_MMIX		80	/* Donald Knuth's MMIX */
 #define EM_M32R		88	/* Renesas M32R */
 #define EM_MN10300	89	/* Panasonic/MEI MN10300, AM33 */
 #define EM_OPENRISC     92     /* OpenRISC 32-bit embedded processor */

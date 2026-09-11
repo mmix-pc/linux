@@ -561,6 +561,7 @@ typedef struct elf64_shdr {
 #define NT_LOONGARCH_HW_BREAK	0xa05   /* LoongArch hardware breakpoint registers */
 #define NN_LOONGARCH_HW_WATCH	"LINUX"
 #define NT_LOONGARCH_HW_WATCH	0xa06   /* LoongArch hardware watchpoint registers */
+#define NT_MMIX_RSTACK		0xb00	/* MMIX pending register-stack values */
 
 /* Note header in a PT_NOTE section */
 typedef struct elf32_note {

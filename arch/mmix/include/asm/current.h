@@ -8,7 +8,7 @@ static __always_inline struct task_struct *get_current(void)
 {
 	struct task_struct *task;
 
-	asm("SET %0,r230" : "=r" (task));
+	asm("OR %0,r230,0" : "=r" (task));
 	return task;
 }
 #define current get_current()

@@ -35,6 +35,7 @@ void __init mmix_boot_puts(const char *text);
 
 /* Supplied by memory setup: install refill and guarded stacks, then start Linux. */
 void __init __noreturn mmix_boot_mmu(void);
+void __init mmix_reserve_boot_memory(void);
 void __init paging_init(void);
 #endif
 #endif

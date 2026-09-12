@@ -6,3 +6,4 @@ KBUILD_CFLAGS += -fno-omit-frame-pointer -fno-optimize-sibling-calls
 KBUILD_AFLAGS += -fno-asynchronous-unwind-tables -fno-unwind-tables
 
 core-y += arch/mmix/kernel/
+core-y += arch/mmix/mm/

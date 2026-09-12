@@ -25,19 +25,7 @@ void __init setup_arch(char **cmdline_p)
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
 	*cmdline_p = boot_command_line;
 
-	/* Reserve every live boot input before permitting memblock allocation. */
-	memblock_reserve((unsigned long)__boot_start, __boot_end - __boot_start);
-	memblock_reserve(__pa_symbol(_stext), _end - _stext);
-	memblock_reserve(boot->stack_base, boot->stack_size);
-	early_init_fdt_reserve_self();
-	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && phys_initrd_size)
-		memblock_reserve(phys_initrd_start, phys_initrd_size);
-	early_init_fdt_scan_reserved_mem();
-
-	min_low_pfn = PFN_UP(memblock_start_of_DRAM());
-	max_low_pfn = PFN_DOWN(memblock_end_of_DRAM());
-	max_pfn = max_low_pfn;
-	memblock_set_current_limit(PFN_PHYS(max_low_pfn));
+	mmix_reserve_boot_memory();
 	parse_early_param();
 	unflatten_device_tree();
 	paging_init();

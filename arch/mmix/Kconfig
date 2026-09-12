@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config MMIX
+	def_bool y
+	select 64BIT
+	select ARCH_WANT_FRAME_POINTERS
+	select CPU_BIG_ENDIAN
+	select GENERIC_CLOCKEVENTS
+	select GENERIC_CPU_DEVICES
+	select GENERIC_IRQ_MULTI_HANDLER
+	select HAVE_PAGE_SIZE_8KB
+	select IRQ_DOMAIN
+	select OF
+	select OF_EARLY_FLATTREE
+	select SPARSE_IRQ
+	select THREAD_INFO_IN_TASK
+
+config 64BIT
+	bool
+	default y
+
+config MMU
+	def_bool y
+
+config CPU_BIG_ENDIAN
+	bool
+	default y
+
+config GENERIC_HWEIGHT
+	def_bool y
+
+config GENERIC_CSUM
+	def_bool y
+
+config NO_IOPORT_MAP
+	def_bool y
+
+config PGTABLE_LEVELS
+	int
+	default 3
+
+config NR_CPUS
+	int
+	default 1
+
+source "kernel/Kconfig.hz"

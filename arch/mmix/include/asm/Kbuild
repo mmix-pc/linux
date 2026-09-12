@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+generic-y += cache.h
+generic-y += extable.h
+generic-y += mcs_spinlock.h
+generic-y += qrwlock.h
+generic-y += qrwlock_types.h
+generic-y += spinlock_types.h
+generic-y += string.h
+generic-y += ticket_spinlock.h

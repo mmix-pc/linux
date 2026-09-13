@@ -3,3 +3,4 @@ obj-y += irqflags.o
 obj-y += head.o early.o setup.o
 obj-y += entry.o traps.o irq.o
 obj-y += process.o switch.o
+obj-y += time.o

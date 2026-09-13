@@ -5,6 +5,7 @@
 #include <asm/barrier.h>
 #include <asm/tlbflush.h>
 #include "mmu.h"
+#include "../kernel/entry.h"
 
 pgd_t swapper_pg_dir[PTRS_PER_PGD] __aligned(PAGE_SIZE);
 static pmd_t boot_pmd[PTRS_PER_PMD] __aligned(PAGE_SIZE);
@@ -41,8 +42,10 @@ void __init __noreturn mmix_boot_mmu(void)
 	mmix_mmu_state.ram_end = boot->ram_size;
 	/* Publish the tables and refill state before enabling translation. */
 	mb();
-	asm volatile("PUT rT,%0\n\tPUT rV,%1\n\tSYNC 6"
-		     : : "r" (mmix_refill), "r" (MMIX_RV_SOFTWARE) : "memory");
+	asm volatile("PUT rT,%0\n\tPUT rV,%1\n\tPUT rTT,%2\n\tPUT rC,%3\n\tSYNC 6"
+		     : : "r" (mmix_refill), "r" (MMIX_RV_SOFTWARE),
+		     "r" (mmix_exception_entry),
+		     "r" (__pa(mmix_continuation_page) | 6) : "memory");
 	mmix_enter_kernel(MMIX_INIT_RSTACK_BASE +
 			  (1 + 256 - MMIX_BOOT_RG + 12) * sizeof(unsigned long));
 }

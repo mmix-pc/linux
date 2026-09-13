@@ -8,6 +8,7 @@
 #include <asm/thread_info.h>
 #include <asm/boot.h>
 #include "boot.h"
+#include "entry.h"
 #include "../mm/mmu.h"
 
 int main(void)
@@ -43,5 +44,38 @@ int main(void)
 	DEFINE(MMU_BUSY, offsetof(struct mmix_mmu_state, busy));
 	DEFINE(MMU_ROOT, offsetof(struct mmix_mmu_state, root));
 	DEFINE(MMU_RAM_END, offsetof(struct mmix_mmu_state, ram_end));
+	DEFINE(TASK_STACK, offsetof(struct task_struct, stack));
+	DEFINE(ENTRY_BUSY, offsetof(struct mmix_entry_state, busy));
+	DEFINE(ENTRY_PHASE, offsetof(struct mmix_entry_state, phase));
+	DEFINE(ENTRY_REGS, offsetof(struct mmix_entry_state, regs));
+	DEFINE(ENTRY_FAULT_PC, offsetof(struct mmix_entry_state, fault_pc));
+	DEFINE(ENTRY_FAULT_VA, offsetof(struct mmix_entry_state, fault_va));
+	DEFINE(ENTRY_SIZE, sizeof(struct mmix_entry_state));
+	DEFINE(PT_REGS, offsetof(struct pt_regs, regs));
+	DEFINE(PT_R_G, offsetof(struct pt_regs, r_g));
+	DEFINE(PT_R_L, offsetof(struct pt_regs, r_l));
+	DEFINE(PT_R_O, offsetof(struct pt_regs, r_o));
+	DEFINE(PT_R_S, offsetof(struct pt_regs, r_s));
+	DEFINE(PT_R_A, offsetof(struct pt_regs, r_a));
+	DEFINE(PT_R_B, offsetof(struct pt_regs, r_b));
+	DEFINE(PT_R_D, offsetof(struct pt_regs, r_d));
+	DEFINE(PT_R_E, offsetof(struct pt_regs, r_e));
+	DEFINE(PT_R_H, offsetof(struct pt_regs, r_h));
+	DEFINE(PT_R_J, offsetof(struct pt_regs, r_j));
+	DEFINE(PT_R_M, offsetof(struct pt_regs, r_m));
+	DEFINE(PT_R_P, offsetof(struct pt_regs, r_p));
+	DEFINE(PT_R_R, offsetof(struct pt_regs, r_r));
+	DEFINE(PT_R_W, offsetof(struct pt_regs, r_w));
+	DEFINE(PT_R_X, offsetof(struct pt_regs, r_x));
+	DEFINE(PT_R_Y, offsetof(struct pt_regs, r_y));
+	DEFINE(PT_R_Z, offsetof(struct pt_regs, r_z));
+	DEFINE(PT_R_BB, offsetof(struct pt_regs, r_bb));
+	DEFINE(PT_R_WW, offsetof(struct pt_regs, r_ww));
+	DEFINE(PT_R_XX, offsetof(struct pt_regs, r_xx));
+	DEFINE(PT_R_YY, offsetof(struct pt_regs, r_yy));
+	DEFINE(PT_R_ZZ, offsetof(struct pt_regs, r_zz));
+	DEFINE(PT_R_Q, offsetof(struct pt_regs, r_q));
+	DEFINE(PT_R_V, offsetof(struct pt_regs, r_v));
+	DEFINE(PT_ROOT, offsetof(struct pt_regs, root));
 	return 0;
 }

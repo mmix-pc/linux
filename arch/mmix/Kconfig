@@ -8,6 +8,7 @@ config MMIX
 	select GENERIC_CPU_DEVICES
 	select GENERIC_IRQ_MULTI_HANDLER
 	select HAVE_PAGE_SIZE_8KB
+	select IRQCHIP
 	select IRQ_DOMAIN
 	select OF
 	select OF_EARLY_FLATTREE

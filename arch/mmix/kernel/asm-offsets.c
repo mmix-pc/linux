@@ -9,6 +9,7 @@
 #include <asm/boot.h>
 #include "boot.h"
 #include "entry.h"
+#include "process.h"
 #include "../mm/mmu.h"
 
 int main(void)
@@ -20,6 +21,9 @@ int main(void)
 	DEFINE(PT_SIZE, sizeof(struct pt_regs));
 	DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
 	DEFINE(TI_PREEMPT_COUNT, offsetof(struct thread_info, preempt_count));
+	DEFINE(THREAD_STARTED, offsetof(struct thread_struct, started));
+	DEFINE(SWITCH_SEED_SIZE, sizeof(struct mmix_switch_seed));
+	DEFINE(SWITCH_SEED_TOP, offsetof(struct mmix_switch_seed, ga));
 	DEFINE(THREAD_SAVE, offsetof(struct thread_struct, save));
 	DEFINE(THREAD_RSTACK_BASE, offsetof(struct thread_struct, rstack_base));
 	DEFINE(THREAD_RSTACK_LIMIT, offsetof(struct thread_struct, rstack_limit));

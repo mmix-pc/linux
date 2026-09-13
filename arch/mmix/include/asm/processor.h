@@ -7,6 +7,7 @@
 #ifndef __ASSEMBLER__
 struct task_struct;
 struct pt_regs;
+struct mmix_rstack;
 
 struct thread_struct {
 	unsigned long save;
@@ -14,6 +15,8 @@ struct thread_struct {
 	unsigned long rstack_limit;
 	unsigned long function;
 	unsigned long argument;
+	unsigned long started;
+	struct mmix_rstack *rstack;
 };
 #define INIT_THREAD { }
 

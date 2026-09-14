@@ -14,7 +14,8 @@
 struct mmix_mmu_state {
 	unsigned long globals[15]; /* Scratch registers 240-254. */
 	unsigned long busy;
-	pgd_t *root;
+	pgd_t *root; /* Shared kernel vmalloc root. */
+	pgd_t *user_root; /* Active user root; NULL for init_mm. */
 	unsigned long ram_end;
 };
 extern struct mmix_mmu_state mmix_mmu_state;

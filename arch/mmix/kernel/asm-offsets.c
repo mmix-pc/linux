@@ -47,6 +47,7 @@ int main(void)
 	DEFINE(MMU_GLOBALS, offsetof(struct mmix_mmu_state, globals));
 	DEFINE(MMU_BUSY, offsetof(struct mmix_mmu_state, busy));
 	DEFINE(MMU_ROOT, offsetof(struct mmix_mmu_state, root));
+	DEFINE(MMU_USER_ROOT, offsetof(struct mmix_mmu_state, user_root));
 	DEFINE(MMU_RAM_END, offsetof(struct mmix_mmu_state, ram_end));
 	DEFINE(TASK_STACK, offsetof(struct task_struct, stack));
 	DEFINE(ENTRY_BUSY, offsetof(struct mmix_entry_state, busy));

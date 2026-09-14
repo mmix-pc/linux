@@ -7,6 +7,7 @@
 
 #define PAGE_OFFSET	_UL(0x8000000000000000)
 #define PHYS_OFFSET	_UL(0)
+#define MMIX_TASK_SIZE	(_UL(1) << 43)
 
 #ifndef __ASSEMBLER__
 #include <linux/string.h>

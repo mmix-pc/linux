@@ -56,12 +56,8 @@ void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
 
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
-	pgd_t *pgd = __pgd_alloc(mm, 0);
-
-	/* This kernel-only profile shares the translated kernel range. */
-	if (pgd)
-		memcpy(pgd, swapper_pg_dir, PAGE_SIZE);
-	return pgd;
+	/* Kernel translations use swapper_pg_dir, never a user-owned root. */
+	return __pgd_alloc(mm, 0);
 }
 
 pgprot_t vm_get_page_prot(unsigned long flags)

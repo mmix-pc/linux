@@ -55,7 +55,8 @@ void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	unsigned long flags;
 
 	local_irq_save(flags);
-	WRITE_ONCE(mmix_mmu_state.root, next->pgd);
+	WRITE_ONCE(mmix_mmu_state.user_root,
+		   next == &init_mm ? NULL : next->pgd);
 	flush_tlb_all();
 	local_irq_restore(flags);
 }

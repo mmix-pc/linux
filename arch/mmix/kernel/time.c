@@ -147,7 +147,12 @@ int mmix_timer_test_mask(struct mmix_timer_mask_result *result)
 	mmix_irq_test_counts(&claims, &completions);
 	before = timer_irqs;
 	chip->irq_mask(data);
-	err = mmix_timer_next_event(5000000, &boot_timer.event);
+	/* Host scheduling may expire the comparator while it is programmed. */
+	for (i = 0; i < 8; i++) {
+		err = mmix_timer_next_event(5000000, &boot_timer.event);
+		if (err != -ETIME)
+			break;
+	}
 	local_irq_restore(flags);
 	start = ioread64be(boot_timer.counter);
 	for (i = 0; i < 2000000 &&

@@ -17,6 +17,7 @@
 struct task_struct;
 struct pt_regs;
 struct mmix_rstack;
+struct mmix_user_rstack_state;
 
 struct thread_struct {
 	unsigned long save;
@@ -26,6 +27,7 @@ struct thread_struct {
 	unsigned long argument;
 	unsigned long started;
 	struct mmix_rstack *rstack;
+	struct mmix_user_rstack_state *user_state;
 };
 #define INIT_THREAD { }
 

@@ -10,6 +10,7 @@
 #include <asm/current.h>
 #include <asm/irqflags.h>
 #include "process.h"
+#include "user_rstack.h"
 
 struct mmix_rstack {
 	struct work_struct work;
@@ -86,6 +87,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 void arch_release_task_struct(struct task_struct *task)
 {
 	/* Final task release, including failed forks; never the running task. */
+	mmix_user_rstack_free(&task->thread.user_state);
 	if (task->thread.rstack)
 		schedule_work(&task->thread.rstack->work);
 }
@@ -220,6 +222,7 @@ void machine_restart(char *command)
 
 void flush_thread(void)
 {
-	/* User exec is excluded; discard any pending syscall inspection state. */
+	/* Successful exec discards the previous user snapshot. */
+	mmix_user_rstack_free(&current->thread.user_state);
 	task_pt_regs(current)->syscall_nr = -1;
 }

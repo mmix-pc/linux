@@ -4,10 +4,14 @@
 #include <linux/memblock.h>
 #include <linux/mm.h>
 #include <linux/of_fdt.h>
+#include <linux/vmalloc.h>
 #include <asm/boot.h>
 #include <asm/pgalloc.h>
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
+#include "mmu.h"
+
+static struct vm_struct initial_stacks;
 
 static void __init reserve_boot_range(phys_addr_t base, phys_addr_t size)
 {
@@ -32,6 +36,12 @@ void __init mmix_reserve_boot_memory(void)
 
 void __init paging_init(void)
 {
+	/* Reserve virtual guards as well as mappings before vmalloc starts. */
+	initial_stacks.addr = (void *)VMALLOC_START;
+	initial_stacks.size = MMIX_INIT_RSTACK_END + PAGE_SIZE - VMALLOC_START;
+	initial_stacks.flags = VM_ALLOC;
+	vm_area_add_early(&initial_stacks);
+
 	min_low_pfn = PFN_UP(memblock_start_of_DRAM());
 	max_low_pfn = PFN_DOWN(memblock_end_of_DRAM());
 	max_pfn = max_low_pfn;
@@ -52,4 +62,17 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	if (pgd)
 		memcpy(pgd, swapper_pg_dir, PAGE_SIZE);
 	return pgd;
+}
+
+pgprot_t vm_get_page_prot(unsigned long flags)
+{
+	unsigned long prot = _PAGE_PRESENT | _PAGE_YOUNG;
+
+	if (flags & (VM_READ | VM_WRITE))
+		prot |= _PAGE_READ;
+	if (flags & VM_EXEC)
+		prot |= _PAGE_EXEC;
+	if ((flags & (VM_WRITE | VM_SHARED)) == (VM_WRITE | VM_SHARED))
+		prot |= _PAGE_WRITE | _PAGE_WRITE_INTENT;
+	return __pgprot(prot);
 }

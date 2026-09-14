@@ -15,4 +15,9 @@ struct mmix_switch_seed {
 struct task_struct;
 int mmix_prepare_thread(struct task_struct *task, int (*function)(void *), void *argument);
 void __noreturn mmix_ret_from_fork(struct task_struct *prev);
+#ifdef CONFIG_MMIX_BOOT_TEST
+void mmix_rstack_fail_after(int steps);
+unsigned long mmix_rstack_allocated(void);
+unsigned long mmix_rstack_released(void);
+#endif
 #endif

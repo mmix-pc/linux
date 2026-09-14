@@ -47,6 +47,7 @@
 #define pte_page(pte) pfn_to_page(pte_pfn(pte))
 #define pte_clear(mm, addr, ptr) set_pte(ptr, __pte(0))
 #define pmd_none(pmd) (!pmd_val(pmd))
+#define pmd_pfn(pmd) ((pmd_val(pmd) & PTE_PHYS_MASK) >> PAGE_SHIFT)
 #define pmd_present(pmd) (!!(pmd_val(pmd) & _PAGE_PRESENT))
 #define pmd_bad(pmd) ((pmd_val(pmd) & ~PTE_PHYS_MASK) != _PAGE_PRESENT)
 #define pmd_clear(ptr) set_pmd(ptr, __pmd(0))
@@ -70,6 +71,27 @@
 #define pte_wrprotect(pte) __pte(pte_val(pte) & ~(_PAGE_WRITE | _PAGE_WRITE_INTENT))
 #define pte_mkwrite_novma(pte) __pte(pte_val(pte) | _PAGE_WRITE | _PAGE_WRITE_INTENT)
 
+static inline pte_t pte_modify(pte_t pte, pgprot_t prot)
+{
+	unsigned long preserve = PTE_PHYS_MASK | _PAGE_YOUNG | _PAGE_DIRTY;
+
+	return __pte((pte_val(pte) & preserve) | pgprot_val(prot));
+}
+
+/*
+ * Nonpresent software leaves: exclusive bit 0, type 1-5, offset 6-47.
+ * Bit 48 must remain clear to distinguish these from present mappings.
+ */
+#define __swp_type(entry) (((entry).val >> 1) & 0x1f)
+#define __swp_offset(entry) ((entry).val >> 6)
+#define __swp_entry(type, offset) ((swp_entry_t) { \
+	(((type) & 0x1f) << 1) | (((offset) & ((1UL << 42) - 1)) << 6) })
+#define __swp_entry_to_pte(entry) __pte((entry).val)
+#define __pte_to_swp_entry(pte) ((swp_entry_t) { pte_val(pte) })
+#define pte_swp_exclusive(pte) (!!(pte_val(pte) & 1))
+#define pte_swp_mkexclusive(pte) __pte(pte_val(pte) | 1)
+#define pte_swp_clear_exclusive(pte) __pte(pte_val(pte) & ~1UL)
+
 #define pgd_ERROR(pgd) pr_err("Bad MMIX pgd: %lx\n", pgd_val(pgd))
 #define pmd_ERROR(pmd) pr_err("Bad MMIX pmd: %lx\n", pmd_val(pmd))
 
@@ -78,4 +100,10 @@ struct vm_area_struct;
 struct vm_fault;
 void update_mmu_cache_range(struct vm_fault *vmf, struct vm_area_struct *vma,
 			   unsigned long address, pte_t *ptep, unsigned int nr);
+
+static inline void update_mmu_cache(struct vm_area_struct *vma,
+				    unsigned long address, pte_t *ptep)
+{
+	update_mmu_cache_range(NULL, vma, address, ptep, 1);
+}
 #endif

@@ -17,5 +17,8 @@ struct thread_info {
 #define INIT_THREAD_INFO(tsk) { .preempt_count = INIT_PREEMPT_COUNT }
 #endif
 
+#define TIF_SYSCALL_TRACE	16
+#define _TIF_SYSCALL_TRACE	(1UL << TIF_SYSCALL_TRACE)
+
 #include <asm-generic/thread_info_tif.h>
 #endif

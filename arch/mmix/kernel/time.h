@@ -29,4 +29,8 @@ static inline int mmix_timer_deadline(u64 now, unsigned long delta, u64 *deadlin
 void mmix_timer_setup(struct mmix_timer *timer, void __iomem *counter,
 		      void __iomem *context);
 irqreturn_t mmix_timer_interrupt(int irq, void *data);
+unsigned long mmix_timer_irq_count(void);
+void mmix_timer_drop_events(bool drop);
+int mmix_timer_test_reprogram(void);
+void mmix_timer_freeze_source(void);
 #endif

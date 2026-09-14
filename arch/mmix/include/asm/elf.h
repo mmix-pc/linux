@@ -14,4 +14,6 @@
 typedef unsigned long elf_greg_t;
 #define ELF_NGREG (sizeof(struct user_regs_struct) / sizeof(elf_greg_t))
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
+/* No independent floating-register bank or NT_PRFPREG payload. */
+typedef struct mmix_fpregset elf_fpregset_t;
 #endif

@@ -3,6 +3,15 @@
 #define _ASM_MMIX_PROCESSOR_H
 
 #include <asm/thread_info.h>
+#include <asm/page.h>
+#include <asm/ptrace.h>
+
+#define TASK_SIZE (1UL << 43)
+#define STACK_TOP TASK_SIZE
+#define STACK_TOP_MAX STACK_TOP
+#define TASK_UNMAPPED_BASE PAGE_ALIGN(TASK_SIZE / 3)
+#define KSTK_EIP(task) instruction_pointer(task_pt_regs(task))
+#define KSTK_ESP(task) user_stack_pointer(task_pt_regs(task))
 
 #ifndef __ASSEMBLER__
 struct task_struct;

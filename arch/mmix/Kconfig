@@ -5,9 +5,12 @@ config MMIX
 	select ARCH_WANT_FRAME_POINTERS
 	select CPU_BIG_ENDIAN
 	select GENERIC_CLOCKEVENTS
+	select GENERIC_CLOCKEVENTS_MIN_ADJUST
 	select GENERIC_CPU_DEVICES
 	select GENERIC_IRQ_MULTI_HANDLER
+	select GENERIC_IRQ_SHOW
 	select GENERIC_SCHED_CLOCK
+	select HAVE_ARCH_VMAP_STACK
 	select HAVE_PAGE_SIZE_8KB
 	select IRQCHIP
 	select IRQ_DOMAIN
@@ -27,6 +30,9 @@ config CPU_BIG_ENDIAN
 	bool
 	default y
 
+config GENERIC_CALIBRATE_DELAY
+	def_bool y
+
 config GENERIC_HWEIGHT
 	def_bool y
 
@@ -45,3 +51,13 @@ config NR_CPUS
 	default 1
 
 source "kernel/Kconfig.hz"
+
+config MMIX_BOOT_TEST
+	bool "MMIX integrated boot tests"
+	depends on KUNIT=y
+	depends on VMAP_STACK && PREEMPTION
+	help
+	  Exercise memory, exception, interrupt, thread and timer integration
+	  through the built-in mmix_boot KUnit suite before userspace starts.
+	  Includes fault injection for register-stack allocation and boot-time
+	  negative controls. Leave disabled in ordinary kernel configurations.

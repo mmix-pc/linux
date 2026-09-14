@@ -30,6 +30,8 @@ void mmix_exception_prepare(struct mmix_entry_state *entry, struct pt_regs *regs
 	unsigned long i;
 
 	*regs = entry->regs;
+	/* Ordinary exceptions and IRQs are not syscall stops. */
+	regs->syscall_nr = -1;
 	locals = (void *)regs->r_o;
 	/* External IRQs save the next PC; synchronous causes name the prior insn. */
 	regs->pc = regs->r_ww;

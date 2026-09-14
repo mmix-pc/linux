@@ -14,11 +14,37 @@
 #define MMIX_TIMER_PENDING BIT_ULL(0)
 
 static struct mmix_timer boot_timer;
+#ifdef CONFIG_MMIX_BOOT_TEST
+static unsigned long timer_irqs;
+static bool drop_events;
+static bool freeze_source;
+static u64 frozen_cycles;
+
+void mmix_timer_drop_events(bool drop)
+{
+	WRITE_ONCE(drop_events, drop);
+}
+
+void mmix_timer_freeze_source(void)
+{
+	frozen_cycles = ioread64be(boot_timer.counter);
+	WRITE_ONCE(freeze_source, true);
+}
+
+unsigned long mmix_timer_irq_count(void)
+{
+	return READ_ONCE(timer_irqs);
+}
+#endif
 
 static u64 mmix_clocksource_read(struct clocksource *source)
 {
 	struct mmix_timer *timer = container_of(source, struct mmix_timer, source);
 
+#ifdef CONFIG_MMIX_BOOT_TEST
+	if (READ_ONCE(freeze_source))
+		return frozen_cycles;
+#endif
 	return ioread64be(timer->counter);
 }
 
@@ -66,6 +92,11 @@ irqreturn_t mmix_timer_interrupt(int irq, void *data)
 		return IRQ_NONE;
 	mmix_timer_shutdown(&timer->event);
 	/* Generic IRQ EOI follows this callback, after device quiescence. */
+#ifdef CONFIG_MMIX_BOOT_TEST
+	timer_irqs++;
+	if (READ_ONCE(drop_events))
+		return IRQ_HANDLED;
+#endif
 	timer->event.event_handler(&timer->event);
 	return IRQ_HANDLED;
 }
@@ -95,6 +126,47 @@ void mmix_timer_setup(struct mmix_timer *timer, void __iomem *counter,
 	};
 	mmix_timer_shutdown(&timer->event);
 }
+
+#ifdef CONFIG_MMIX_BOOT_TEST
+int mmix_timer_test_reprogram(void)
+{
+	struct clock_event_device *event = &boot_timer.event;
+	ktime_t saved;
+	unsigned long flags;
+	unsigned int delay;
+	int err = 0;
+
+	local_irq_save(flags);
+	saved = event->next_event;
+	event->set_state_shutdown(event);
+	event->next_event_forced = 0;
+	if (ioread64be(boot_timer.context + MMIX_TIMER_CONTROL) ||
+	    ioread64be(boot_timer.context + MMIX_TIMER_STATUS))
+		err = -EINVAL;
+	event->set_state_oneshot(event);
+	if (event->set_next_event(0, event) != -ETIME)
+		err = -EINVAL;
+	/* Exercise the public core reprogramming API's expired-deadline result. */
+	event->next_event = ktime_sub_ns(ktime_get(), 1);
+	if (clockevents_update_freq(event, MMIX_TIMER_RATE) != -ETIME)
+		err = -EINVAL;
+	event->set_state_shutdown(event);
+	event->next_event_forced = 0;
+	if (ioread64be(boot_timer.context + MMIX_TIMER_CONTROL) ||
+	    ioread64be(boot_timer.context + MMIX_TIMER_STATUS))
+		err = -EINVAL;
+	event->set_state_oneshot(event);
+	event->next_event = saved;
+	/* Restore a real event even if the saved deadline elapsed during testing. */
+	for (delay = 1; clockevents_update_freq(event, MMIX_TIMER_RATE); delay *= 2) {
+		if (delay > 16)
+			panic("MMIX: boot test could not restore timer");
+		event->next_event = ktime_add_ms(ktime_get(), delay);
+	}
+	local_irq_restore(flags);
+	return err;
+}
+#endif
 
 void __init time_init(void)
 {

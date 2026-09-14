@@ -14,6 +14,8 @@ struct pt_regs {
 	unsigned long r_w, r_x, r_y, r_z;
 	unsigned long r_bb, r_ww, r_xx, r_yy, r_zz;
 	unsigned long mask, r_q, r_v, root, save;
+	long syscall_nr;
+	unsigned long syscall_args[6];
 };
 
 struct task_struct;

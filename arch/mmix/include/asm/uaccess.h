@@ -11,6 +11,9 @@ unsigned long raw_copy_from_user(void *to, const void __user *from,
 unsigned long raw_copy_to_user(void __user *to, const void *from,
 			      unsigned long size);
 
+unsigned long __clear_user(void __user *to, unsigned long size);
+#define __clear_user __clear_user
+
 #include <asm/access_ok.h>
 #include <asm-generic/uaccess.h>
 #endif

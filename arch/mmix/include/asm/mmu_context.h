@@ -11,5 +11,6 @@ int init_new_context(struct task_struct *task, struct mm_struct *mm);
 #define init_new_context init_new_context
 void destroy_context(struct mm_struct *mm);
 #define destroy_context destroy_context
+#include <asm-generic/mm_hooks.h>
 #include <asm-generic/mmu_context.h>
 #endif

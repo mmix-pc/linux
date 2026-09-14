@@ -17,6 +17,38 @@ struct mmix_rstack {
 	struct page *pages[MMIX_RSTACK_SIZE / PAGE_SIZE];
 };
 
+#ifdef CONFIG_MMIX_BOOT_TEST
+static atomic_t rstack_fail_step = ATOMIC_INIT(-1);
+static atomic_long_t rstack_allocations = ATOMIC_LONG_INIT(0);
+static atomic_long_t rstack_releases = ATOMIC_LONG_INIT(0);
+
+void mmix_rstack_fail_after(int steps)
+{
+	atomic_set(&rstack_fail_step, steps);
+}
+
+unsigned long mmix_rstack_allocated(void)
+{
+	return atomic_long_read(&rstack_allocations);
+}
+
+unsigned long mmix_rstack_released(void)
+{
+	return atomic_long_read(&rstack_releases);
+}
+
+static bool rstack_fail(void)
+{
+	return atomic_read(&rstack_fail_step) >= 0 &&
+		atomic_dec_return(&rstack_fail_step) < 0;
+}
+#else
+static inline bool rstack_fail(void)
+{
+	return false;
+}
+#endif
+
 static void free_rstack(struct mmix_rstack *stack)
 {
 	unsigned int i;
@@ -32,6 +64,9 @@ static void free_rstack(struct mmix_rstack *stack)
 	for (i = 0; i < ARRAY_SIZE(stack->pages); i++)
 		if (stack->pages[i])
 			__free_page(stack->pages[i]);
+#ifdef CONFIG_MMIX_BOOT_TEST
+	atomic_long_inc(&rstack_releases);
+#endif
 	kfree(stack);
 }
 
@@ -76,7 +111,10 @@ int mmix_prepare_thread(struct task_struct *task, int (*function)(void *), void 
 		return -EINVAL;
 	memset(seed, 0, sizeof(*seed));
 	seed->globals[230 - MMIX_BOOT_RG] = (unsigned long)task;
-	seed->globals[254 - MMIX_BOOT_RG] = sp + THREAD_SIZE;
+	memset(task_pt_regs(task), 0, sizeof(struct pt_regs));
+	task_pt_regs(task)->pc = (unsigned long)function;
+	task_pt_regs(task)->syscall_nr = -1;
+	seed->globals[254 - MMIX_BOOT_RG] = (unsigned long)task_pt_regs(task);
 	seed->ga = (unsigned long)MMIX_BOOT_RG << 56;
 	task->thread.save = (unsigned long)&seed->ga;
 	task->thread.function = (unsigned long)function;
@@ -95,22 +133,42 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 	/* Userspace fork/exec context is outside the kernel-thread profile. */
 	if (!args->fn)
 		return -EOPNOTSUPP;
+	if (rstack_fail())
+		return -ENOMEM;
 	stack = kzalloc_obj(*stack);
 	if (!stack)
 		return -ENOMEM;
+#ifdef CONFIG_MMIX_BOOT_TEST
+	atomic_long_inc(&rstack_allocations);
+#endif
 	INIT_WORK(&stack->work, release_rstack_work);
 	for (i = 0; i < ARRAY_SIZE(stack->pages); i++) {
+		if (rstack_fail())
+			goto fail;
 		stack->pages[i] = alloc_page(GFP_KERNEL | __GFP_ZERO);
 		if (!stack->pages[i])
 			goto fail;
 	}
 	/* Leave the first page absent; get_vm_area adds the upper guard. */
+	if (rstack_fail())
+		goto fail;
 	stack->area = get_vm_area(MMIX_RSTACK_SIZE + PAGE_SIZE, VM_SPARSE);
 	if (!stack->area)
 		goto fail;
 	base = (unsigned long)stack->area->addr + PAGE_SIZE;
-	err = vm_area_map_pages(stack->area, base, base + MMIX_RSTACK_SIZE, stack->pages);
-	if (err)
+	for (i = 0; i < ARRAY_SIZE(stack->pages); i++) {
+		unsigned long address = base + i * PAGE_SIZE;
+
+		err = -ENOMEM;
+		if (rstack_fail())
+			goto fail;
+		err = vm_area_map_pages(stack->area, address, address + PAGE_SIZE,
+					&stack->pages[i]);
+		if (err)
+			goto fail;
+	}
+	err = -ENOMEM;
+	if (rstack_fail())
 		goto fail;
 	task->thread.rstack_base = base;
 	task->thread.rstack_limit = base + MMIX_RSTACK_SIZE;
@@ -158,4 +216,10 @@ void machine_power_off(void)
 void machine_restart(char *command)
 {
 	machine_halt();
+}
+
+void flush_thread(void)
+{
+	/* User exec is excluded; discard any pending syscall inspection state. */
+	task_pt_regs(current)->syscall_nr = -1;
 }

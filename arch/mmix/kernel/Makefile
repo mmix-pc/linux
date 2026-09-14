@@ -6,4 +6,4 @@ obj-y += entry.o traps.o irq.o
 obj-y += process.o switch.o
 obj-y += time.o
 obj-y += delay.o uaccess.o ptrace.o cpuinfo.o
-obj-$(CONFIG_MMIX_BOOT_TEST) += boot_test.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += boot_test.o boot_test_context.o

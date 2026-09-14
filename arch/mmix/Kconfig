@@ -56,6 +56,7 @@ config MMIX_BOOT_TEST
 	bool "MMIX integrated boot tests"
 	depends on KUNIT=y
 	depends on VMAP_STACK && PREEMPTION
+	select CRC32
 	help
 	  Exercise memory, exception, interrupt, thread and timer integration
 	  through the built-in mmix_boot KUnit suite before userspace starts.

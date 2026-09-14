@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/init.h>
+#include <linux/irq.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/sched_clock.h>
 #include <asm/io.h>
+#include "irq.h"
 #include "time.h"
 
 #define MMIX_TIMER_COMPARE 0
@@ -128,6 +130,51 @@ void mmix_timer_setup(struct mmix_timer *timer, void __iomem *counter,
 }
 
 #ifdef CONFIG_MMIX_BOOT_TEST
+int mmix_timer_test_mask(struct mmix_timer_mask_result *result)
+{
+	struct irq_data *data = irq_get_irq_data(boot_timer.event.irq);
+	struct irq_chip *chip;
+	unsigned long flags, before, claims, completions;
+	u64 start;
+	unsigned int i;
+	int err;
+
+	if (!data || data->hwirq != 16)
+		return -EINVAL;
+	chip = irq_data_get_irq_chip(data);
+	preempt_disable();
+	local_irq_save(flags);
+	mmix_irq_test_counts(&claims, &completions);
+	before = timer_irqs;
+	chip->irq_mask(data);
+	err = mmix_timer_next_event(5000000, &boot_timer.event);
+	local_irq_restore(flags);
+	start = ioread64be(boot_timer.counter);
+	for (i = 0; i < 2000000 &&
+	     ioread64be(boot_timer.counter) - start < 10000000; i++)
+		cpu_relax();
+	local_irq_save(flags);
+	result->pending = ioread64be(boot_timer.context + MMIX_TIMER_STATUS);
+	result->masked_irqs = timer_irqs - before;
+	chip->irq_unmask(data);
+	local_irq_restore(flags);
+	start = ioread64be(boot_timer.counter);
+	for (i = 0; i < 2000000 && mmix_timer_irq_count() == before &&
+	     ioread64be(boot_timer.counter) - start < 100000000; i++)
+		cpu_relax();
+	local_irq_save(flags);
+	result->delivered_irqs = timer_irqs - before;
+	mmix_irq_test_counts(&result->claims, &result->completions);
+	result->claims -= claims;
+	result->completions -= completions;
+	local_irq_restore(flags);
+	/* Leave the generic tick armed even if the diagnostic attempt failed. */
+	if (mmix_timer_test_reprogram())
+		err = -EINVAL;
+	preempt_enable();
+	return err;
+}
+
 int mmix_timer_test_reprogram(void)
 {
 	struct clock_event_device *event = &boot_timer.event;

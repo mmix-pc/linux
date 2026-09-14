@@ -6,6 +6,7 @@
 #include <linux/irqdomain.h>
 #include <linux/of_address.h>
 #include <asm/io.h>
+#include "irq.h"
 
 #define MMIX_INTC_SOURCES 8192
 #define MMIX_INTC_WORDS (MMIX_INTC_SOURCES / 64)
@@ -15,6 +16,19 @@
 static void __iomem *intc_context;
 static struct irq_domain *intc_domain;
 static DEFINE_RAW_SPINLOCK(intc_lock);
+#ifdef CONFIG_MMIX_BOOT_TEST
+static unsigned long timer_claims, timer_completions;
+
+void mmix_irq_test_counts(unsigned long *claims, unsigned long *completions)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	*claims = timer_claims;
+	*completions = timer_completions;
+	local_irq_restore(flags);
+}
+#endif
 
 static void mmix_irq_enable(struct irq_data *data, bool enable)
 {
@@ -42,6 +56,10 @@ static void mmix_irq_eoi(struct irq_data *data)
 {
 	/* Device service must quiesce the level before releasing its claim. */
 	iowrite64be(data->hwirq, intc_context + MMIX_INTC_COMPLETE);
+#ifdef CONFIG_MMIX_BOOT_TEST
+	if (data->hwirq == 16)
+		timer_completions++;
+#endif
 }
 
 static struct irq_chip mmix_irq_chip = {
@@ -77,6 +95,10 @@ static void mmix_handle_irq(struct pt_regs *regs)
 			return;
 		if (source >= MMIX_INTC_SOURCES)
 			panic("MMIX: invalid interrupt claim");
+#ifdef CONFIG_MMIX_BOOT_TEST
+		if (source == 16)
+			timer_claims++;
+#endif
 		if (generic_handle_domain_irq(intc_domain, source)) {
 			struct irq_data data = { .hwirq = source };
 

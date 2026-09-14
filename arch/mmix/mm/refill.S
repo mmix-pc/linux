@@ -80,6 +80,7 @@ mmix_refill:
 	AND r247,r247,r246
 	8ADDU r247,r247,r242
 	LDOU r248,r247,0
+	BZ r248,.Lmissing
 	OR r249,r244,7
 	ORH r249,15
 	ANDN r250,r248,r249
@@ -121,6 +122,36 @@ mmix_refill:
 	GETA r255,%geta(mmix_kernel_irq_mask)
 	LDOU r255,r255,0
 	RESUME 1
+.Lmissing:
+	/* Only explicit data accesses with intact current stacks may use fixups. */
+	GET r240,rXX
+	SRU r240,r240,24
+	AND r240,r240,255
+	SUBU r240,r240,128
+	CMPU r240,r240,64
+	BNN r240,.Lfatal
+	BNN r230,.Lfatal
+	GET r240,rYY
+	SETL r241,TASK_STACK
+	LDOU r241,r230,r241
+	SETL r242,8192
+	SUBU r241,r241,r242
+	SUBU r241,r240,r241
+	SETL r242,MMIX_THREAD_SIZE+16384
+	CMPU r241,r241,r242
+	BN r241,.Lfatal
+	SETL r241,TASK_THREAD+THREAD_RSTACK_BASE
+	LDOU r241,r230,r241
+	SETL r242,8192
+	SUBU r241,r241,r242
+	CMPU r242,r240,r241
+	BN r242,.Lordinary
+	SETL r241,TASK_THREAD+THREAD_RSTACK_LIMIT
+	LDOU r241,r230,r241
+	SETL r242,8192
+	ADDU r241,r241,r242
+	CMPU r241,r240,r241
+	BN r241,.Lfatal
 .Lordinary:
 	SETL r254,0
 	STOU r254,r255,MMU_BUSY

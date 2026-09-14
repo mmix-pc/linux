@@ -10,6 +10,18 @@
 #include "entry.h"
 #include "../mm/mmu.h"
 
+#ifdef CONFIG_MMIX_BOOT_TEST
+static struct mmix_fault_sample last_fault;
+
+void mmix_boot_fault_sample(struct mmix_fault_sample *sample)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	*sample = last_fault;
+	local_irq_restore(flags);
+}
+#endif
 
 int fixup_exception(struct pt_regs *regs)
 {
@@ -18,6 +30,12 @@ int fixup_exception(struct pt_regs *regs)
 	fixup = search_exception_tables(regs->pc);
 	if (!fixup || (long)fixup->fixup >= 0 || (fixup->fixup & 3))
 		return 0;
+#ifdef CONFIG_MMIX_BOOT_TEST
+	last_fault.address = regs->r_yy;
+	last_fault.cause = regs->r_xx;
+	last_fault.pc = regs->pc;
+	last_fault.count++;
+#endif
 	regs->pc = fixup->fixup;
 	regs->r_ww = fixup->fixup;
 	regs->r_xx = 1UL << 63;
@@ -35,7 +53,8 @@ void mmix_exception_prepare(struct mmix_entry_state *entry, struct pt_regs *regs
 	locals = (void *)regs->r_o;
 	/* External IRQs save the next PC; synchronous causes name the prior insn. */
 	regs->pc = regs->r_ww;
-	if (!(regs->r_q & regs->mask & MMIX_IRQ_CONTROLLER) ||
+	if (regs->r_xx >> 32 == 0x03000000UL ||
+	    !(regs->r_q & regs->mask & MMIX_IRQ_CONTROLLER) ||
 	    (regs->r_xx & MMIX_KERNEL_FAULT_MASK))
 		regs->pc -= 4;
 	for (i = 0; i < regs->r_l; i++)
@@ -68,7 +87,11 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 	mmix_exception_prepare(entry, regs);
 	old_regs = set_irq_regs(regs);
 	pending = regs->r_q & regs->mask;
-	if (pending & MMIX_KERNEL_FAULT_MASK) {
+	if (regs->r_xx >> 32 == 0x03000000UL) {
+		/* Missing-leaf data fault admitted by the stackless refill path. */
+		if (!fixup_exception(regs))
+			mmix_exception_fatal();
+	} else if (pending & MMIX_KERNEL_FAULT_MASK) {
 		if (!fixup_exception(regs))
 			mmix_exception_fatal();
 		mmix_ack_requests(pending & MMIX_KERNEL_FAULT_MASK);

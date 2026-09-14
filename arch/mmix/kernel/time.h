@@ -33,4 +33,9 @@ unsigned long mmix_timer_irq_count(void);
 void mmix_timer_drop_events(bool drop);
 int mmix_timer_test_reprogram(void);
 void mmix_timer_freeze_source(void);
+struct mmix_timer_mask_result {
+	unsigned long pending, masked_irqs, delivered_irqs, claims, completions;
+};
+
+int mmix_timer_test_mask(struct mmix_timer_mask_result *result);
 #endif

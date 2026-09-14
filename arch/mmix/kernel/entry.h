@@ -19,6 +19,13 @@ void mmix_exception_prepare(struct mmix_entry_state *entry, struct pt_regs *regs
 void mmix_exception_finish(struct mmix_entry_state *entry, struct pt_regs *regs);
 void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *regs);
 void __noreturn mmix_exception_fatal(void);
+#ifdef CONFIG_MMIX_BOOT_TEST
+struct mmix_fault_sample {
+	unsigned long address, cause, pc, count;
+};
+
+void mmix_boot_fault_sample(struct mmix_fault_sample *sample);
+#endif
 /* Clear only selected live requests; hardware preserves intervening arrivals. */
 static inline void mmix_ack_requests(unsigned long mask)
 {

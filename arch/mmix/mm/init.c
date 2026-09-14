@@ -25,7 +25,7 @@ void __init mmix_reserve_boot_memory(void)
 {
 	const struct mmix_boot_info *boot = mmix_get_boot_info();
 
-	reserve_boot_range((unsigned long)__boot_start, __boot_end - __boot_start);
+	reserve_boot_range(__pa_symbol(__boot_start), __boot_end - __boot_start);
 	reserve_boot_range(__pa_symbol(_stext), _end - _stext);
 	reserve_boot_range(boot->stack_base, boot->stack_size);
 	reserve_boot_range(boot->fdt, boot->fdt_size);

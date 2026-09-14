@@ -109,7 +109,7 @@ void __init __noreturn mmix_early_boot(void)
 	boot.ram_size = size;
 	if (!in_ram(&boot, boot.fdt, boot.fdt_size) ||
 	    !in_ram(&boot, __pa(_stext), _end - _stext) ||
-	    !in_ram(&boot, (unsigned long)__boot_start, __boot_end - __boot_start))
+	    !in_ram(&boot, __pa_symbol(__boot_start), __boot_end - __boot_start))
 		mmix_boot_fail("boot ranges");
 	cpu = fdt_path_offset(fdt, "/cpus/cpu@0");
 	if (cell(fdt, cpu, "reg") != boot.cpu)

@@ -48,7 +48,7 @@ static void __ref boot_inputs(struct kunit *test)
 	saved_boot = *boot;
 	text_crc = crc32_le(0, _stext, _etext - _stext);
 	fdt_crc = crc32_le(0, fdt, boot->fdt_size);
-	bootstrap_crc = crc32_le(0, __va((unsigned long)__boot_start), __boot_end - __boot_start);
+	bootstrap_crc = crc32_le(0, __boot_start, __boot_end - __boot_start);
 	kunit_info(test, "MMIX_CHECK boot ram=%lu free=%lu reserved=%lu image=%lx..%lx fdt=%lx+%lu loader_stack=%lx+%lu\n",
 		   boot->ram_size, free, boot->ram_size - (totalram_pages() << PAGE_SHIFT),
 		   __pa_symbol(_stext), __pa_symbol(_end), boot->fdt, boot->fdt_size,
@@ -93,7 +93,7 @@ static void __ref memory(struct kunit *test)
 			for (j = 0; j < i; j++)
 				KUNIT_EXPECT_NE(test, pa, page_to_phys(pages[j]));
 			KUNIT_EXPECT_FALSE(test, overlaps(pa, PAGE_SIZE,
-							  (unsigned long)__boot_start,
+							  __pa_symbol(__boot_start),
 							  __boot_end - __boot_start));
 			if (!round && !i)
 				first = pa;
@@ -122,7 +122,7 @@ static void __ref memory(struct kunit *test)
 	KUNIT_EXPECT_TRUE(test, reused);
 	KUNIT_EXPECT_EQ(test, crc32_le(0, _stext, _etext - _stext), text_crc);
 	KUNIT_EXPECT_EQ(test, crc32_le(0, __va(boot->fdt), boot->fdt_size), fdt_crc);
-	KUNIT_EXPECT_EQ(test, crc32_le(0, __va((unsigned long)__boot_start),
+	KUNIT_EXPECT_EQ(test, crc32_le(0, __boot_start,
 				       __boot_end - __boot_start), bootstrap_crc);
 	KUNIT_EXPECT_EQ(test, memcmp(boot, &saved_boot, sizeof(saved_boot)), 0);
 	kunit_info(test, "MMIX_CHECK memory pages=%u range=%lx..%lx reused=%u text_crc=%x fdt_crc=%x bootstrap_crc=%x\n",

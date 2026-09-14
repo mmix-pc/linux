@@ -8,7 +8,6 @@
 .globl _start
 _start:
 	GETA r255,%geta(mmix_boot_handoff)
-	ANDNH r255,0x8000
 	STOU r1,r255,BOOT_FDT
 	STOU r0,r255,BOOT_CPU
 	GET r2,rS

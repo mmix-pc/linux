@@ -15,7 +15,7 @@ PHDRS {
 jiffies = jiffies_64;
 
 SECTIONS {
-	.boot 0x10000 : AT(0x10000) {
+	.boot (PAGE_OFFSET + 0x10000) : AT(0x10000) {
 		__boot_start = .;
 		KEEP(*(.boot.text))
 		__boot_end = .;
@@ -59,7 +59,7 @@ SECTIONS {
 	_end = .;
 
 	ASSERT(_start == __boot_start, "MMIX entry must start the bootstrap")
-	ASSERT(__boot_end <= 0x100000, "MMIX bootstrap overlaps kernel")
+	ASSERT(__boot_end - LOAD_OFFSET <= 0x100000, "MMIX bootstrap overlaps kernel")
 	ASSERT((_stext & (PAGE_SIZE - 1)) == 0, "MMIX kernel is unaligned")
 	ASSERT(_end - LOAD_OFFSET <= 0x10000000, "MMIX image exceeds boot RAM profile")
 	ASSERT((__bss_stop & 7) == 0, "MMIX BSS must end on an octa boundary")

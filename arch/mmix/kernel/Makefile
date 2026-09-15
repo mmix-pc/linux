@@ -32,3 +32,4 @@ $(obj)/lifecycle_test_user.elf: $(obj)/lifecycle_test_user.o $(src)/exec_test_us
 	$(call if_changed,exec_test)
 $(obj)/lifecycle_test_context.o: $(obj)/lifecycle_test_user.elf
 endif
+obj-$(CONFIG_MMIX_USER_TEST) += user_test.o

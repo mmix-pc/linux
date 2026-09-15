@@ -41,6 +41,8 @@ int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
 			     void *arg, unsigned long *base, unsigned long *top);
 #ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_user_rstack_fail_after(int step);
+#endif
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 long mmix_user_rstack_live(void);
 #endif
 #endif

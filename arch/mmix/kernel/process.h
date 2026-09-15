@@ -17,6 +17,8 @@ int mmix_prepare_thread(struct task_struct *task, int (*function)(void *), void 
 void __noreturn mmix_ret_from_fork(struct task_struct *prev);
 #ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_rstack_fail_after(int steps);
+#endif
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 unsigned long mmix_rstack_allocated(void);
 unsigned long mmix_rstack_released(void);
 #endif

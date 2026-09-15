@@ -10,18 +10,21 @@ struct mmix_user_rstack_state {
 	void *continuation;
 };
 
-#ifdef CONFIG_MMIX_BOOT_TEST
-static atomic_t fail_step = ATOMIC_INIT(-1);
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_long_t live = ATOMIC_LONG_INIT(0);
-
-void mmix_user_rstack_fail_after(int step)
-{
-	atomic_set(&fail_step, step);
-}
 
 long mmix_user_rstack_live(void)
 {
 	return atomic_long_read(&live);
+}
+#endif
+
+#ifdef CONFIG_MMIX_BOOT_TEST
+static atomic_t fail_step = ATOMIC_INIT(-1);
+
+void mmix_user_rstack_fail_after(int step)
+{
+	atomic_set(&fail_step, step);
 }
 
 static bool fail_allocation(void)
@@ -47,7 +50,7 @@ void mmix_user_rstack_free(struct mmix_user_rstack_state **owner)
 			   get_order(MMIX_USER_SHADOW_PAGES * PAGE_SIZE));
 	if (stack->continuation)
 		free_page((unsigned long)stack->continuation);
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	atomic_long_dec(&live);
 #endif
 	kfree(stack);
@@ -62,7 +65,7 @@ struct mmix_user_rstack_state *mmix_user_rstack_alloc(void)
 	stack = kzalloc_obj(*stack);
 	if (!stack)
 		return NULL;
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	atomic_long_inc(&live);
 #endif
 	if (fail_allocation())

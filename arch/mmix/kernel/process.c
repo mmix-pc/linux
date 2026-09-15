@@ -18,15 +18,9 @@ struct mmix_rstack {
 	struct page *pages[MMIX_RSTACK_SIZE / PAGE_SIZE];
 };
 
-#ifdef CONFIG_MMIX_BOOT_TEST
-static atomic_t rstack_fail_step = ATOMIC_INIT(-1);
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_long_t rstack_allocations = ATOMIC_LONG_INIT(0);
 static atomic_long_t rstack_releases = ATOMIC_LONG_INIT(0);
-
-void mmix_rstack_fail_after(int steps)
-{
-	atomic_set(&rstack_fail_step, steps);
-}
 
 unsigned long mmix_rstack_allocated(void)
 {
@@ -36,6 +30,15 @@ unsigned long mmix_rstack_allocated(void)
 unsigned long mmix_rstack_released(void)
 {
 	return atomic_long_read(&rstack_releases);
+}
+#endif
+
+#ifdef CONFIG_MMIX_BOOT_TEST
+static atomic_t rstack_fail_step = ATOMIC_INIT(-1);
+
+void mmix_rstack_fail_after(int steps)
+{
+	atomic_set(&rstack_fail_step, steps);
 }
 
 static bool rstack_fail(void)
@@ -65,7 +68,7 @@ static void free_rstack(struct mmix_rstack *stack)
 	for (i = 0; i < ARRAY_SIZE(stack->pages); i++)
 		if (stack->pages[i])
 			__free_page(stack->pages[i]);
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	atomic_long_inc(&rstack_releases);
 #endif
 	kfree(stack);
@@ -151,7 +154,7 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 	stack = kzalloc_obj(*stack);
 	if (!stack)
 		return -ENOMEM;
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	atomic_long_inc(&rstack_allocations);
 #endif
 	INIT_WORK(&stack->work, release_rstack_work);
@@ -211,10 +214,16 @@ void __noreturn mmix_ret_from_fork(struct task_struct *prev)
 {
 	int (*function)(void *) = (void *)current->thread.function;
 	void *argument = (void *)current->thread.argument;
+	int result;
 
 	schedule_tail(prev);
 	local_irq_enable();
-	do_exit(function(argument));
+	result = function(argument);
+	if (!result && current->thread.exec_pending) {
+		mmix_user_enter(current->thread.user_state, NULL, NULL);
+		do_group_exit(SIGSEGV);
+	}
+	do_exit(result);
 }
 
 void arch_cpu_idle(void)

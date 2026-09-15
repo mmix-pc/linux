@@ -64,3 +64,12 @@ config MMIX_BOOT_TEST
 	  through the built-in mmix_boot KUnit suite before userspace starts.
 	  Includes fault injection for register-stack allocation and boot-time
 	  negative controls. Leave disabled in ordinary kernel configurations.
+
+config MMIX_USER_TEST
+	bool "MMIX userspace resource observation"
+	depends on DEBUG_FS
+	help
+	  Expose private user-state and scheduler register-stack live counts
+	  through debugfs mmix/rstack_stats for userspace reclamation tests.
+	  This read-only test interface is not a userspace ABI. Leave disabled
+	  in ordinary kernel configurations.

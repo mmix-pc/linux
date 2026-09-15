@@ -26,6 +26,8 @@ struct thread_struct {
 	unsigned long function;
 	unsigned long argument;
 	unsigned long started;
+	bool exec_pending;
+	bool exec_committed;
 	struct mmix_rstack *rstack;
 	struct mmix_user_rstack_state *user_state;
 };

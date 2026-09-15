@@ -15,3 +15,13 @@ obj-$(CONFIG_MMIX_BOOT_TEST) += user_entry_test.o user_entry_test_context.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_fault_test.o
 obj-y += syscall.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += syscall_test.o syscall_test_context.o
+obj-y += exec.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += exec_test.o exec_test_image.o
+ifeq ($(CONFIG_MMIX_BOOT_TEST),y)
+targets += exec_test_user.o exec_test_user.elf
+quiet_cmd_exec_test = LD      $@
+      cmd_exec_test = $(LD) -z max-page-size=8192 -T $(src)/exec_test_user.lds -o $@ $(obj)/exec_test_user.o
+$(obj)/exec_test_user.elf: $(obj)/exec_test_user.o $(src)/exec_test_user.lds FORCE
+	$(call if_changed,exec_test)
+$(obj)/exec_test_image.o: $(obj)/exec_test_user.elf
+endif

@@ -73,6 +73,8 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	if (!entry)
 		return -ENOMEM;
 	entry->stack = stack;
+	current->thread.exec_pending = false;
+	current->thread.exec_committed = false;
 	entry->ops = ops;
 	entry->data = data;
 	entry->shadow_physical = __pa(mmix_user_rstack_shadow(stack));
@@ -124,8 +126,9 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	pending = regs->r_q & ((0xffUL << 32) | MMIX_IRQ_CONTROLLER);
 	syscall = (regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
 		  !(pending & (0xffUL << 32));
-	/* A pending external IRQ must not consume a completed forced TRAP. */
-	if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall) {
+	/* Pending IRQs must not consume synchronous forced traps or translations. */
+	if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall &&
+	    regs->r_xx >> 32 != 0x03000000UL) {
 		entry->interrupts++;
 		old_regs = set_irq_regs(regs);
 		irq_enter();

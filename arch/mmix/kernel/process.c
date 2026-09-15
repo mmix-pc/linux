@@ -222,7 +222,9 @@ void machine_restart(char *command)
 
 void flush_thread(void)
 {
-	/* Successful exec discards the previous user snapshot. */
+	/* Crossing the exec commit point discards the previous user snapshot. */
+	current->thread.exec_pending = false;
+	current->thread.exec_committed = true;
 	mmix_user_rstack_free(&current->thread.user_state);
 	task_pt_regs(current)->syscall_nr = -1;
 }

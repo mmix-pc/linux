@@ -192,8 +192,6 @@ static void numbers_and_errors(struct kunit *test)
 				    __NR_socket,
 				    __NR_clone,
 				    __NR_clone3,
-				    __NR_execve,
-				    __NR_execveat,
 				    __NR_exit,
 				    __NR_exit_group };
 	struct pt_regs *regs = kunit_kzalloc(test, sizeof(*regs), GFP_KERNEL);
@@ -203,6 +201,8 @@ static void numbers_and_errors(struct kunit *test)
 	KUNIT_ASSERT_NOT_NULL(test, regs);
 	for (i = 0; i < ARRAY_SIZE(invalid); i++)
 		KUNIT_EXPECT_EQ(test, call_user(t, invalid[i], 0, 0, 0, 0, 0, 0), -ENOSYS);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_execve, 0, 0, 0, 0, 0, 0), -EFAULT);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_execveat, 0, 0, 0, 0, 0, 0), -EFAULT);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_rt_sigreturn, 0, 0, 0, 0, 0, 0), -ENOSYS);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_getpid, 0, 0, 0, 0, 0, 0),
 			(long)task_tgid_vnr(current));

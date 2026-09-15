@@ -4,6 +4,9 @@
 .balign 4
 .globl mmix_exception_entry
 mmix_exception_entry:
+	GET r255,rG
+	CMPU r255,r255,230
+	BNZ r255,mmix_user_invalid_entry
 	GETA r255,%geta(mmix_entry_state)
 	LDOU r255,r255,ENTRY_BUSY
 	BNZ r255,mmix_exception_fatal
@@ -148,6 +151,9 @@ mmix_exception_entry:
 	LDOU r253,r252,MMU_ROOT
 	SETL r254,ENTRY_REGS+PT_ROOT
 	STOU r253,r255,r254
+	GETA r252,%geta(mmix_active_user)
+	LDOU r252,r252,0
+	BNZ r252,mmix_user_capture_entry
 	GET r253,rG
 	CMPU r253,r253,230
 	BNZ r253,mmix_exception_fatal
@@ -189,6 +195,11 @@ mmix_exception_entry:
 	BN r252,mmix_exception_fatal
 	SETL r253,2
 	STOU r253,r255,ENTRY_PHASE
+	/* The captured program request must not retrigger during SAVE. */
+	GET r253,rQ
+	SETMH r252,0xe4
+	ANDN r253,r253,r252
+	PUT rQ,r253
 	SETMH r253,0xe4
 	PUT rK,r253
 	SAVE r254

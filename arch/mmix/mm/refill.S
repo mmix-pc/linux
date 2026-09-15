@@ -5,6 +5,9 @@
 .balign 4
 .globl mmix_refill
 mmix_refill:
+	GET r255,rG
+	CMPU r255,r255,230
+	BNZ r255,mmix_user_invalid_entry
 	GETA r255,%geta(mmix_mmu_state)
 	LDOU r255,r255,MMU_BUSY
 	BNZ r255,.Lfatal_early
@@ -32,12 +35,21 @@ mmix_refill:
 	CMPU r240,r240,r241
 	BNZ r240,.Lordinary
 	GET r240,rYY
+	GETA r241,%geta(mmix_user_shadow_active)
+	LDOU r241,r241,0
+	BNZ r241,.Lshadow
 	SRU r241,r240,43
 	BZ r241,.Luser
 	SETH r241,0x2000
 	SUBU r240,r240,r241
 	SRU r241,r240,43
 	BNZ r241,.Lfatal
+	GETA r242,%geta(mmix_active_user)
+	LDOU r242,r242,0
+	BZ r242,1f
+	GET r242,rWW
+	BNN r242,.Lordinary
+1:
 	LDOU r242,r255,MMU_ROOT
 	JMP .Lroot
 .Luser:
@@ -107,6 +119,7 @@ mmix_refill:
 	SYNC 3
 	OR r244,r244,7
 	AND r248,r248,r244
+.Ltranslated:
 	PUT rZZ,r248
 	SETL r254,0
 	STOU r254,r255,MMU_BUSY
@@ -128,7 +141,29 @@ mmix_refill:
 	GETA r255,%geta(mmix_kernel_irq_mask)
 	LDOU r255,r255,0
 	RESUME 1
+.Lshadow:
+	GET r241,rWW
+	BNN r241,.Lfatal
+	GETA r242,%geta(mmix_active_user)
+	LDOU r242,r242,0
+	BZ r242,.Lfatal
+	LDOU r243,r242,USER_SHADOW_BASE
+	CMPU r241,r240,r243
+	BN r241,.Lfatal
+	LDOU r244,r242,USER_SHADOW_END
+	CMPU r241,r240,r244
+	BNN r241,.Lfatal
+	SUBU r240,r240,r243
+	SRU r240,r240,13
+	SLU r240,r240,13
+	LDOU r248,r242,USER_SHADOW_PHYSICAL
+	ADDU r248,r248,r240
+	ORL r248,6
+	JMPB .Ltranslated
 .Lmissing:
+	GETA r240,%geta(mmix_active_user)
+	LDOU r240,r240,0
+	BNZ r240,.Lordinary
 	/* Only explicit data accesses with intact current stacks may use fixups. */
 	GET r240,rXX
 	SRU r240,r240,24
@@ -179,6 +214,9 @@ mmix_refill:
 	GETA r255,%geta(mmix_exception_entry)
 	GO r255,r255,0
 .Lfatal:
+	GETA r240,%geta(mmix_active_user)
+	LDOU r240,r240,0
+	BNZB r240,.Lordinary
 	LDOU r240,r255,MMU_GLOBALS+0
 	LDOU r241,r255,MMU_GLOBALS+8
 	LDOU r242,r255,MMU_GLOBALS+16

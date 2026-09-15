@@ -1,0 +1,234 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#include <generated/asm-offsets.h>
+.text
+.balign 4
+.globl mmix_user_run
+mmix_user_run:
+	GET r255,rC
+	STOU r255,r231,USER_KERNEL_C
+	GET r0,rJ
+	OR r1,r231,0
+.Lsave_kernel:
+	SAVE r255
+	STOU r255,r231,USER_KERNEL_SAVE
+	GETA r255,%geta(mmix_active_user)
+	STOU r231,r255,0
+	PUT rC,0
+	GETA r255,%geta(mmix_user_shadow_active)
+	SETL r254,1
+	STOU r254,r255,0
+	SYNC 6
+	LDOU r255,r231,USER_USER_TOP
+	UNSAVE r255
+	/* Only trusted resident state selects return metadata after UNSAVE. */
+	GETA r255,%geta(mmix_active_user)
+	LDOU r255,r255,0
+	SETL r254,USER_REGS+PT_R_WW
+	LDOU r253,r255,r254
+	PUT rWW,r253
+	SETL r254,USER_REGS+PT_R_XX
+	LDOU r253,r255,r254
+	PUT rXX,r253
+	SETL r254,USER_REGS+PT_R_YY
+	LDOU r253,r255,r254
+	PUT rYY,r253
+	SETL r254,USER_REGS+PT_R_ZZ
+	LDOU r253,r255,r254
+	PUT rZZ,r253
+	SETL r254,USER_REGS+PT_REGS+255*8
+	LDOU r253,r255,r254
+	PUT rBB,r253
+	GETA r254,%geta(mmix_user_shadow_active)
+	SETL r253,0
+	STOU r253,r254,0
+	/* Kernel translations must not survive the privilege boundary. */
+	SYNC 6
+	SETMH r253,0xff
+	ORL r253,256
+	GETA r254,%geta(mmix_kernel_irq_mask)
+	STOU r253,r254,0
+	SETL r254,USER_REGS+PT_REGS+230*8
+	LDOU r230,r255,r254
+	SETL r254,USER_REGS+PT_REGS+231*8
+	LDOU r231,r255,r254
+	SETL r254,USER_REGS+PT_REGS+232*8
+	LDOU r232,r255,r254
+	SETL r254,USER_REGS+PT_REGS+233*8
+	LDOU r233,r255,r254
+	SETL r254,USER_REGS+PT_REGS+234*8
+	LDOU r234,r255,r254
+	SETL r254,USER_REGS+PT_REGS+235*8
+	LDOU r235,r255,r254
+	SETL r254,USER_REGS+PT_REGS+236*8
+	LDOU r236,r255,r254
+	SETL r254,USER_REGS+PT_REGS+237*8
+	LDOU r237,r255,r254
+	SETL r254,USER_REGS+PT_REGS+238*8
+	LDOU r238,r255,r254
+	SETL r254,USER_REGS+PT_REGS+239*8
+	LDOU r239,r255,r254
+	SETL r254,USER_REGS+PT_REGS+240*8
+	LDOU r240,r255,r254
+	SETL r254,USER_REGS+PT_REGS+241*8
+	LDOU r241,r255,r254
+	SETL r254,USER_REGS+PT_REGS+242*8
+	LDOU r242,r255,r254
+	SETL r254,USER_REGS+PT_REGS+243*8
+	LDOU r243,r255,r254
+	SETL r254,USER_REGS+PT_REGS+244*8
+	LDOU r244,r255,r254
+	SETL r254,USER_REGS+PT_REGS+245*8
+	LDOU r245,r255,r254
+	SETL r254,USER_REGS+PT_REGS+246*8
+	LDOU r246,r255,r254
+	SETL r254,USER_REGS+PT_REGS+247*8
+	LDOU r247,r255,r254
+	SETL r254,USER_REGS+PT_REGS+248*8
+	LDOU r248,r255,r254
+	SETL r254,USER_REGS+PT_REGS+249*8
+	LDOU r249,r255,r254
+	SETL r254,USER_REGS+PT_REGS+250*8
+	LDOU r250,r255,r254
+	SETL r254,USER_REGS+PT_REGS+251*8
+	LDOU r251,r255,r254
+	SETL r254,USER_REGS+PT_REGS+252*8
+	LDOU r252,r255,r254
+	SETL r254,USER_REGS+PT_REGS+253*8
+	LDOU r253,r255,r254
+	SETL r254,USER_REGS+PT_REGS+254*8
+	LDOU r254,r255,r254
+	SETMH r255,0xff
+	ORL r255,256
+	RESUME 1
+
+.globl mmix_user_capture_entry
+mmix_user_capture_entry:
+	GETA r252,%geta(mmix_active_user)
+	LDOU r252,r252,0
+	BZ r252,mmix_exception_fatal
+	/* Validate every address before installing the private SAVE window. */
+	GET r253,rG
+	CMPU r253,r253,230
+	BNZ r253,mmix_user_invalid_entry
+	GET r253,rL
+	CMPU r254,r253,230
+	BP r254,mmix_user_invalid_entry
+	STOU r253,r252,USER_CAPTURE+CAP_R_L
+	GET r253,rG
+	STOU r253,r252,USER_CAPTURE+CAP_R_G
+	GET r253,rS
+	GET r254,rO
+	SRU r251,r254,43
+	BNZ r251,mmix_user_invalid_entry
+	OR r251,r253,r254
+	AND r251,r251,7
+	BNZ r251,mmix_user_invalid_entry
+	CMPU r251,r253,r254
+	BP r251,mmix_user_invalid_entry
+	SUBU r251,r254,r253
+	SETL r250,8192
+	CMPU r251,r251,r250
+	BP r251,mmix_user_invalid_entry
+	STOU r253,r252,USER_CAPTURE+CAP_R_S
+	STOU r253,r252,USER_CAPTURE+CAP_START
+	STOU r254,r252,USER_CAPTURE+CAP_R_O
+	SRU r253,r253,13
+	SLU r253,r253,13
+	STOU r253,r252,USER_SHADOW_BASE
+	GET r251,rL
+	ADDU r251,r251,40
+	8ADDU r254,r251,r254
+	SETL r251,1
+	SLU r251,r251,43
+	CMPU r251,r254,r251
+	BP r251,mmix_user_invalid_entry
+	SETL r251,8191
+	ADDU r254,r254,r251
+	SRU r254,r254,13
+	SLU r254,r254,13
+	STOU r254,r252,USER_SHADOW_END
+	GETA r255,%geta(mmix_user_shadow_active)
+	SETL r254,1
+	STOU r254,r255,0
+	SYNC 6
+	/* The original request is already in the resident frame. */
+	GET r254,rQ
+	SETMH r253,0xff
+	ANDN r254,r254,r253
+	PUT rQ,r254
+	SETMH r255,0xe4
+	PUT rK,r255
+	SAVE r254
+	GETA r252,%geta(mmix_active_user)
+	LDOU r252,r252,0
+	STOU r254,r252,USER_USER_TOP
+	/* Detach the complete trap frame before C or nested interrupts. */
+	GETA r253,%geta(mmix_entry_state)
+	SETL r254,ENTRY_REGS
+	ADDU r253,r253,r254
+	SETL r254,USER_REGS
+	ADDU r252,r252,r254
+	SETL r251,PT_SIZE/8
+.Lcopy_regs:
+	LDOU r250,r253,0
+	STOU r250,r252,0
+	ADDU r253,r253,8
+	ADDU r252,r252,8
+	SUBU r251,r251,1
+	BNZB r251,.Lcopy_regs
+	JMP .Lkernel_restore
+
+.globl mmix_user_invalid_entry
+mmix_user_invalid_entry:
+	/* Only r255 is guaranteed global for an ABI-violating rG. */
+	GETA r255,%geta(mmix_active_user)
+	LDOU r255,r255,0
+	BZ r255,mmix_exception_fatal
+	STOU r255,r255,USER_ERROR
+	GETA r255,%geta(.Lempty_seed_top)
+	UNSAVE r255
+.Lkernel_restore:
+	PUT rK,0
+	/* User program requests must not fire again on the restored kernel stack. */
+	GET r254,rQ
+	SETMH r253,0xff
+	ANDN r254,r254,r253
+	PUT rQ,r254
+	GETA r255,%geta(mmix_active_user)
+	LDOU r251,r255,0
+	SETL r254,0
+	STOU r254,r255,0
+	GETA r255,%geta(mmix_user_shadow_active)
+	STOU r254,r255,0
+	GETA r255,%geta(mmix_entry_state)
+	STOU r254,r255,ENTRY_BUSY
+	GETA r255,%geta(mmix_mmu_state)
+	STOU r254,r255,MMU_BUSY
+	SYNC 6
+	GETA r255,%geta(mmix_kernel_irq_mask)
+	SETMH r254,0xe4
+	STOU r254,r255,0
+	PUT rK,r254
+	LDOU r255,r251,USER_KERNEL_SAVE
+	UNSAVE r255
+	LDOU r255,r1,USER_KERNEL_C
+	PUT rC,r255
+	OR r231,r1,0
+	PUSHJ r31,mmix_user_dispatch
+	BNZ r231,.Ldone
+	OR r231,r1,0
+	JMPB .Lsave_kernel
+.Ldone:
+	LDOU r255,r1,USER_KERNEL_C
+	PUT rC,r255
+	PUT rJ,r0
+	POP 0,0
+
+.section .data,"aw"
+.balign 8
+	.quad 0
+	.rept 38
+	.quad 0
+	.endr
+.Lempty_seed_top:
+	.quad 0xe600000000000000

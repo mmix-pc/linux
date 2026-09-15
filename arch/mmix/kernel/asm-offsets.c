@@ -9,6 +9,7 @@
 #include <asm/boot.h>
 #include "boot.h"
 #include "entry.h"
+#include "user_entry.h"
 #include "process.h"
 #include "../mm/mmu.h"
 
@@ -82,5 +83,19 @@ int main(void)
 	DEFINE(PT_R_Q, offsetof(struct pt_regs, r_q));
 	DEFINE(PT_R_V, offsetof(struct pt_regs, r_v));
 	DEFINE(PT_ROOT, offsetof(struct pt_regs, root));
+	DEFINE(USER_KERNEL_SAVE, offsetof(struct mmix_user_entry, kernel_save));
+	DEFINE(USER_KERNEL_C, offsetof(struct mmix_user_entry, kernel_c));
+	DEFINE(USER_SHADOW_BASE, offsetof(struct mmix_user_entry, shadow_base));
+	DEFINE(USER_SHADOW_END, offsetof(struct mmix_user_entry, shadow_end));
+	DEFINE(USER_SHADOW_PHYSICAL, offsetof(struct mmix_user_entry, shadow_physical));
+	DEFINE(USER_USER_TOP, offsetof(struct mmix_user_entry, user_top));
+	DEFINE(USER_ERROR, offsetof(struct mmix_user_entry, error));
+	DEFINE(USER_CAPTURE, offsetof(struct mmix_user_entry, capture));
+	DEFINE(USER_REGS, offsetof(struct mmix_user_entry, regs));
+	DEFINE(CAP_R_G, offsetof(struct mmix_user_capture, r_g));
+	DEFINE(CAP_R_L, offsetof(struct mmix_user_capture, r_l));
+	DEFINE(CAP_R_O, offsetof(struct mmix_user_capture, r_o));
+	DEFINE(CAP_R_S, offsetof(struct mmix_user_capture, r_s));
+	DEFINE(CAP_START, offsetof(struct mmix_user_capture, start));
 	return 0;
 }

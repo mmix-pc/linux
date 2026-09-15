@@ -25,6 +25,8 @@ struct mmix_user_entry {
 	unsigned long user_top;
 	long error;
 	int fatal_signal;
+	bool exit_requested, exit_group;
+	int exit_code;
 	struct mmix_user_capture capture;
 	struct pt_regs regs;
 	struct mmix_user_rstack_state *stack;

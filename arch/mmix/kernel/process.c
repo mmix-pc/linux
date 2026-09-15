@@ -10,7 +10,7 @@
 #include <asm/current.h>
 #include <asm/irqflags.h>
 #include "process.h"
-#include "user_rstack.h"
+#include "user_entry.h"
 
 struct mmix_rstack {
 	struct work_struct work;
@@ -125,6 +125,14 @@ int mmix_prepare_thread(struct task_struct *task, int (*function)(void *), void 
 	return 0;
 }
 
+static int user_child(void *unused)
+{
+	int error = mmix_user_enter(current->thread.user_state, NULL, NULL);
+
+	/* A native user task can only return here if initial admission failed. */
+	do_group_exit(error ? SIGSEGV : 0);
+}
+
 int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 {
 	struct mmix_rstack *stack;
@@ -132,9 +140,12 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 	unsigned int i;
 	int err = -ENOMEM;
 
-	/* Userspace fork/exec context is outside the kernel-thread profile. */
-	if (!args->fn)
-		return -EOPNOTSUPP;
+	/* Only independent-mm, original-stack native children are qualified. */
+	if (!args->fn) {
+		if (args->flags || args->stack || args->stack_size ||
+		    args->exit_signal != SIGCHLD || !current->thread.user_state)
+			return -EOPNOTSUPP;
+	}
 	if (rstack_fail())
 		return -ENOMEM;
 	stack = kzalloc_obj(*stack);
@@ -174,9 +185,20 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		goto fail;
 	task->thread.rstack_base = base;
 	task->thread.rstack_limit = base + MMIX_RSTACK_SIZE;
-	err = mmix_prepare_thread(task, args->fn, args->fn_arg);
+	err = mmix_prepare_thread(task, args->fn ?: user_child, args->fn_arg);
 	if (err)
 		goto fail;
+	if (!args->fn) {
+		struct mmix_user_state *state;
+
+		task->thread.user_state = mmix_user_rstack_dup(current->thread.user_state);
+		if (!task->thread.user_state) {
+			err = -ENOMEM;
+			goto fail;
+		}
+		state = mmix_user_rstack_state(task->thread.user_state);
+		state->regs.regs[231] = 0;
+	}
 	task->thread.rstack = stack;
 	return 0;
 fail:
@@ -197,9 +219,9 @@ void __noreturn mmix_ret_from_fork(struct task_struct *prev)
 
 void arch_cpu_idle(void)
 {
-	/* SYNC 4 is a power-saving hint, not an unconditional wait instruction. */
+	/* FIXME: SYNC 4 can sleep after an IRQ was serviced; no atomic wake protocol yet. */
 	local_irq_enable();
-	asm volatile("SYNC 4" ::: "memory");
+	cpu_relax();
 	local_irq_disable();
 }
 

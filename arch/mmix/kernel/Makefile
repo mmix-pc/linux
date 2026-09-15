@@ -20,8 +20,15 @@ obj-$(CONFIG_MMIX_BOOT_TEST) += exec_test.o exec_test_image.o
 ifeq ($(CONFIG_MMIX_BOOT_TEST),y)
 targets += exec_test_user.o exec_test_user.elf
 quiet_cmd_exec_test = LD      $@
-      cmd_exec_test = $(LD) -z max-page-size=8192 -T $(src)/exec_test_user.lds -o $@ $(obj)/exec_test_user.o
+      cmd_exec_test = $(LD) -z max-page-size=8192 -T $(src)/exec_test_user.lds -o $@ $(filter %.o,$^)
 $(obj)/exec_test_user.elf: $(obj)/exec_test_user.o $(src)/exec_test_user.lds FORCE
 	$(call if_changed,exec_test)
 $(obj)/exec_test_image.o: $(obj)/exec_test_user.elf
+endif
+obj-$(CONFIG_MMIX_BOOT_TEST) += lifecycle_test.o lifecycle_test_context.o
+ifeq ($(CONFIG_MMIX_BOOT_TEST),y)
+targets += lifecycle_test_user.o lifecycle_test_user.elf
+$(obj)/lifecycle_test_user.elf: $(obj)/lifecycle_test_user.o $(src)/exec_test_user.lds FORCE
+	$(call if_changed,exec_test)
+$(obj)/lifecycle_test_context.o: $(obj)/lifecycle_test_user.elf
 endif

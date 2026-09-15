@@ -4,6 +4,7 @@
 #include <linux/nospec.h>
 #include <linux/syscalls.h>
 #include <linux/sched/signal.h>
+#include <linux/sched/task.h>
 #include <linux/unistd.h>
 #include <asm/page.h>
 #include "user_entry.h"
@@ -16,11 +17,21 @@ SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len, unsigned long, pr
 	return ksys_mmap_pgoff(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
 }
 
+SYSCALL_DEFINE5(clone, unsigned long, flags, unsigned long, stack,
+		int __user *, parent_tid, int __user *, child_tid, unsigned long, tls)
+{
+	struct kernel_clone_args args = { .exit_signal = SIGCHLD };
+
+	/* Reject sharing, new stacks and all unqualified flags before publication. */
+	if (flags != SIGCHLD || stack)
+		return -EOPNOTSUPP;
+	return kernel_clone(&args);
+}
+
 typedef long (*syscall_fn)(unsigned long, unsigned long, unsigned long, unsigned long,
 			   unsigned long, unsigned long);
 
-/* Context-changing entry/return paths have not been implemented yet. */
-#define sys_clone sys_ni_syscall
+/* Exit is handled before table dispatch so entry storage can be released. */
 #define sys_clone3 sys_ni_syscall
 #define sys_rt_sigreturn sys_ni_syscall
 #define sys_exit sys_ni_syscall
@@ -42,6 +53,12 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 
 	if (entry->event != MMIX_USER_SYSCALL)
 		return mmix_user_fault(entry, data);
+	if (nr == __NR_exit || nr == __NR_exit_group) {
+		entry->exit_requested = true;
+		entry->exit_group = nr == __NR_exit_group;
+		entry->exit_code = (args[0] & 0xff) << 8;
+		return 1;
+	}
 	current->thread.exec_committed = false;
 	/* The user snapshot is owned and the resident entry is released. */
 	local_irq_enable();

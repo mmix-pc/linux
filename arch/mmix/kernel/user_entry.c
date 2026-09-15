@@ -63,7 +63,8 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	struct mmix_user_entry *entry;
 	struct mmix_user_state *state;
 	unsigned long flags;
-	int error, fatal_signal = 0;
+	int error, fatal_signal = 0, exit_code = 0;
+	bool exit_requested = false, exit_group = false;
 
 	if (!ops)
 		ops = &native_ops;
@@ -88,9 +89,18 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	mmix_user_run(entry);
 	error = entry->error;
 	fatal_signal = entry->fatal_signal;
+	exit_requested = entry->exit_requested;
+	exit_group = entry->exit_group;
+	exit_code = entry->exit_code;
 	local_irq_restore(flags);
 out:
 	kfree(entry);
+	if (exit_requested) {
+		local_irq_enable();
+		if (exit_group)
+			do_group_exit(exit_code);
+		do_exit(exit_code);
+	}
 	if (fatal_signal) {
 		/* Fatal fault policy; signal-handler delivery belongs to the return path. */
 		local_irq_enable();

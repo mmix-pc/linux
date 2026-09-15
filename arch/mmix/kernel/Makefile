@@ -13,3 +13,5 @@ obj-y += user_entry.o user_entry_context.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_entry_test.o user_entry_test_context.o
 
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_fault_test.o
+obj-y += syscall.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += syscall_test.o syscall_test_context.o

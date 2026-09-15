@@ -34,7 +34,7 @@ int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 }
 
 static const struct mmix_user_entry_ops native_ops = {
-	.event = mmix_user_fault,
+	.event = mmix_user_syscall,
 	.write = mmix_user_write,
 };
 
@@ -103,6 +103,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	struct pt_regs *regs = &entry->regs;
 	struct pt_regs *old_regs;
 	unsigned long pending;
+	bool syscall;
 	int error;
 
 	if (entry->error) {
@@ -121,7 +122,10 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	regs->pc = regs->r_ww;
 	regs->syscall_nr = -1;
 	pending = regs->r_q & ((0xffUL << 32) | MMIX_IRQ_CONTROLLER);
-	if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32))) {
+	syscall = (regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
+		  !(pending & (0xffUL << 32));
+	/* A pending external IRQ must not consume a completed forced TRAP. */
+	if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall) {
 		entry->interrupts++;
 		old_regs = set_irq_regs(regs);
 		irq_enter();
@@ -133,8 +137,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		set_irq_regs(old_regs);
 	} else {
 		entry->event = MMIX_USER_FAULT;
-		if ((regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
-		    !(pending & (0xffUL << 32))) {
+		if (syscall) {
 			entry->event = MMIX_USER_SYSCALL;
 			regs->syscall_nr = regs->regs[237];
 			memcpy(regs->syscall_args, regs->regs + 231, sizeof(regs->syscall_args));

@@ -5,11 +5,12 @@
 #include <linux/err.h>
 #include <linux/string.h>
 #include <asm/ptrace.h>
+#include <asm/unistd.h>
 #include <uapi/linux/audit.h>
 
 static inline int syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
 {
-	return regs->syscall_nr;
+	return (unsigned long)regs->syscall_nr < __NR_syscalls ? regs->syscall_nr : -1;
 }
 
 static inline void syscall_set_nr(struct task_struct *task,

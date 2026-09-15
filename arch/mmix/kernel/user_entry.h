@@ -39,6 +39,7 @@ extern struct mmix_user_entry *mmix_active_user;
 extern unsigned long mmix_user_shadow_active;
 int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user_entry_ops *ops,
 		    void *data);
+int mmix_user_syscall(struct mmix_user_entry *entry, void *data);
 int mmix_user_fault(struct mmix_user_entry *entry, void *data);
 int mmix_user_write(void *data, unsigned long address, const void *source, size_t size);
 void mmix_user_run(struct mmix_user_entry *entry);

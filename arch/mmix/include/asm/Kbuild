@@ -9,3 +9,4 @@ generic-y += spinlock_types.h
 generic-y += string.h
 generic-y += ticket_spinlock.h
 generic-y += user.h
+syscall-y += syscall_table_64.h

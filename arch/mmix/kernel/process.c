@@ -228,10 +228,8 @@ void __noreturn mmix_ret_from_fork(struct task_struct *prev)
 
 void arch_cpu_idle(void)
 {
-	/* FIXME: SYNC 4 can sleep after an IRQ was serviced; no atomic wake protocol yet. */
-	local_irq_enable();
-	cpu_relax();
-	local_irq_disable();
+	/* Masked interrupts wake SYNC 4; the generic idle loop enables IRQs. */
+	asm volatile("SYNC 4" ::: "memory");
 }
 
 void machine_halt(void)

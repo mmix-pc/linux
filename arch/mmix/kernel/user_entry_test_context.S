@@ -100,4 +100,9 @@ mmix_user_test_pending:
 .Lpending:
 	TRAP 1,0,0
 	JMPB .Lbad
+.globl mmix_user_test_direct
+mmix_user_test_direct:
+	SETH r232,0x8000
+	LDOU r231,r232,0
+	JMPB .Lbad
 mmix_user_test_end:

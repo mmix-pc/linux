@@ -10,4 +10,6 @@ extern const unsigned char mmix_user_test_spin[];
 extern const unsigned char mmix_user_test_privileged[], mmix_user_test_unsave[];
 extern const unsigned char mmix_user_test_restore[], mmix_user_test_pending[];
 
+extern const unsigned char mmix_user_test_direct[];
+
 #endif

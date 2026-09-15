@@ -14,6 +14,7 @@ config MMIX
 	select HAVE_PAGE_SIZE_8KB
 	select IRQCHIP
 	select IRQ_DOMAIN
+	select LOCK_MM_AND_FIND_VMA
 	select OF
 	select OF_EARLY_FLATTREE
 	select SPARSE_IRQ

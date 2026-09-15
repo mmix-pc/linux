@@ -54,6 +54,7 @@ mmix_refill:
 	JMP .Lroot
 .Luser:
 	LDOU r242,r255,MMU_USER_ROOT
+	BZ r242,.Lmissing
 .Lroot:
 	LDOU r243,r255,MMU_RAM_END
 	SRU r241,r242,48
@@ -76,6 +77,7 @@ mmix_refill:
 	AND r247,r247,r246
 	8ADDU r247,r247,r242
 	LDOU r242,r247,0
+	BZ r242,.Lmissing
 	ANDN r247,r242,r244
 	CMPU r247,r247,r245
 	BNZ r247,.Lfatal
@@ -87,6 +89,7 @@ mmix_refill:
 	AND r247,r247,r246
 	8ADDU r247,r247,r242
 	LDOU r242,r247,0
+	BZ r242,.Lmissing
 	ANDN r247,r242,r244
 	CMPU r247,r247,r245
 	BNZ r247,.Lfatal

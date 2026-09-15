@@ -9,6 +9,7 @@
 #include <asm/tlbflush.h>
 #include "entry.h"
 #include "../mm/mmu.h"
+#include "../mm/fault.h"
 
 #ifdef CONFIG_MMIX_BOOT_TEST
 static struct mmix_fault_sample last_fault;
@@ -87,12 +88,14 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 	mmix_exception_prepare(entry, regs);
 	old_regs = set_irq_regs(regs);
 	pending = regs->r_q & regs->mask;
+	/* The detached frame survives nested IRQs and sleeping page faults. */
+	WRITE_ONCE(entry->busy, 0);
 	if (regs->r_xx >> 32 == 0x03000000UL) {
 		/* Missing-leaf data fault admitted by the stackless refill path. */
-		if (!fixup_exception(regs))
+		if (mmix_handle_page_fault(regs) && !fixup_exception(regs))
 			mmix_exception_fatal();
 	} else if (pending & MMIX_KERNEL_FAULT_MASK) {
-		if (!fixup_exception(regs))
+		if (mmix_handle_page_fault(regs) && !fixup_exception(regs))
 			mmix_exception_fatal();
 		mmix_ack_requests(pending & MMIX_KERNEL_FAULT_MASK);
 	} else if (pending & MMIX_IRQ_CONTROLLER) {

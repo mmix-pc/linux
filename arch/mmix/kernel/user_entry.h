@@ -24,6 +24,7 @@ struct mmix_user_entry {
 	unsigned long shadow_base, shadow_end, shadow_physical;
 	unsigned long user_top;
 	long error;
+	int fatal_signal;
 	struct mmix_user_capture capture;
 	struct pt_regs regs;
 	struct mmix_user_rstack_state *stack;
@@ -38,6 +39,8 @@ extern struct mmix_user_entry *mmix_active_user;
 extern unsigned long mmix_user_shadow_active;
 int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user_entry_ops *ops,
 		    void *data);
+int mmix_user_fault(struct mmix_user_entry *entry, void *data);
+int mmix_user_write(void *data, unsigned long address, const void *source, size_t size);
 void mmix_user_run(struct mmix_user_entry *entry);
 int mmix_user_dispatch(struct mmix_user_entry *entry);
 void mmix_user_capture_entry(void);

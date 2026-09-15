@@ -11,3 +11,5 @@ obj-y += user_rstack.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_rstack_test.o user_rstack_test_context.o
 obj-y += user_entry.o user_entry_context.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_entry_test.o user_entry_test_context.o
+
+obj-$(CONFIG_MMIX_BOOT_TEST) += user_fault_test.o

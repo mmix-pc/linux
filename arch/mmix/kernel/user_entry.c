@@ -4,11 +4,39 @@
 #include <linux/mm.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/sched/signal.h>
+#include <linux/uaccess.h>
 #include <asm/irq_regs.h>
 #include "user_entry.h"
+#include "../mm/fault.h"
 
 struct mmix_user_entry *mmix_active_user;
 unsigned long mmix_user_shadow_active;
+
+int mmix_user_write(void *data, unsigned long address, const void *source, size_t size)
+{
+	unsigned long flags;
+	unsigned long left;
+
+	local_irq_save(flags);
+	local_irq_enable();
+	left = copy_to_user((void __user *)address, source, size);
+	local_irq_restore(flags);
+	return left ? -EFAULT : 0;
+}
+
+int mmix_user_fault(struct mmix_user_entry *entry, void *data)
+{
+	if (entry->event != MMIX_USER_FAULT)
+		return -EOPNOTSUPP;
+	entry->fatal_signal = mmix_handle_page_fault(&entry->regs);
+	return entry->fatal_signal ? -EFAULT : 0;
+}
+
+static const struct mmix_user_entry_ops native_ops = {
+	.event = mmix_user_fault,
+	.write = mmix_user_write,
+};
 
 static int prepare_return(struct mmix_user_entry *entry)
 {
@@ -21,6 +49,9 @@ static int prepare_return(struct mmix_user_entry *entry)
 	entry->shadow_base = base;
 	entry->shadow_end = PAGE_ALIGN(top + sizeof(unsigned long));
 	entry->user_top = top;
+	/* Backing writes may have replaced a COW page since the original fault. */
+	if (entry->ops->write == mmix_user_write && mmix_refresh_translation(&entry->regs))
+		return -EFAULT;
 	memcpy(entry->regs.regs, mmix_user_rstack_state(entry->stack)->regs.regs,
 	       sizeof(entry->regs.regs));
 	return 0;
@@ -32,9 +63,11 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	struct mmix_user_entry *entry;
 	struct mmix_user_state *state;
 	unsigned long flags;
-	int error;
+	int error, fatal_signal = 0;
 
-	if (!stack || !ops || !ops->event)
+	if (!ops)
+		ops = &native_ops;
+	if (!stack || !ops->event)
 		return -EINVAL;
 	entry = kzalloc_obj(*entry);
 	if (!entry)
@@ -52,9 +85,15 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	local_irq_save(flags);
 	mmix_user_run(entry);
 	error = entry->error;
+	fatal_signal = entry->fatal_signal;
 	local_irq_restore(flags);
 out:
 	kfree(entry);
+	if (fatal_signal) {
+		/* Fatal fault policy; signal-handler delivery belongs to the return path. */
+		local_irq_enable();
+		do_group_exit(fatal_signal);
+	}
 	return error;
 }
 
@@ -118,6 +157,8 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	if (!error)
 		return 0;
 failed:
+	if (!entry->fatal_signal && error == -EFAULT && entry->ops->write == mmix_user_write)
+		entry->fatal_signal = SIGSEGV;
 	entry->error = error;
 	return 1;
 }

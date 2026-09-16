@@ -21,6 +21,12 @@ long mmix_user_rstack_live(void)
 
 #ifdef CONFIG_MMIX_BOOT_TEST
 static atomic_t fail_step = ATOMIC_INIT(-1);
+static atomic_long_t write_limit = ATOMIC_LONG_INIT(-1);
+
+void mmix_user_rstack_write_limit(long bytes)
+{
+	atomic_long_set(&write_limit, bytes);
+}
 
 void mmix_user_rstack_fail_after(int step)
 {
@@ -205,25 +211,42 @@ int mmix_user_rstack_validate(const struct mmix_user_state *s)
 	return 0;
 }
 
-int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
-			     int (*write)(void *arg, unsigned long address, const void *data,
-					  size_t size),
-			     void *arg, unsigned long *base, unsigned long *top)
+int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,
+				 int (*write)(void *, unsigned long, const void *, size_t),
+				 void *arg)
+{
+	struct mmix_user_state *s = &stack->state;
+
+	if (mmix_user_rstack_validate(s) || (!write && s->pending.count))
+		return -EINVAL;
+	if (!s->pending.count)
+		return 0;
+#ifdef CONFIG_MMIX_BOOT_TEST
+	{
+		long limit = atomic_long_xchg(&write_limit, -1);
+		size_t size = s->pending.count * sizeof(unsigned long);
+
+		if (limit >= 0 && limit < size) {
+			if (limit)
+				write(arg, s->pending.start, s->pending.data, limit);
+			return -EFAULT;
+		}
+	}
+#endif
+	return write(arg, s->pending.start, s->pending.data,
+		     s->pending.count * sizeof(unsigned long));
+}
+
+int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
+			     unsigned long *base, unsigned long *top)
 {
 	struct mmix_user_state *s = &stack->state;
 	struct user_regs_struct *r = &s->regs;
 	unsigned long *p;
 	unsigned long start = s->pending.start & PAGE_MASK;
-	int err;
 
-	if (mmix_user_rstack_validate(s) || (!write && s->pending.count))
+	if (mmix_user_rstack_validate(s))
 		return -EINVAL;
-	if (s->pending.count) {
-		err = write(arg, s->pending.start, s->pending.data,
-			    s->pending.count * sizeof(unsigned long));
-		if (err)
-			return err;
-	}
 	memset(stack->shadow, 0, MMIX_USER_SHADOW_PAGES * PAGE_SIZE);
 	p = stack->shadow + r->r_o - start;
 	memcpy(p, r->regs, r->r_l * sizeof(unsigned long));
@@ -247,4 +270,13 @@ int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
 	*base = start;
 	*top = r->r_o + (r->r_l + MMIX_USER_SAVE_WORDS - 1) * sizeof(unsigned long);
 	return 0;
+}
+
+int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
+			     int (*write)(void *, unsigned long, const void *, size_t),
+			     void *arg, unsigned long *base, unsigned long *top)
+{
+	int error = mmix_user_rstack_materialize(stack, write, arg);
+
+	return error ? error : mmix_user_rstack_prepare(stack, base, top);
 }

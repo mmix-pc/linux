@@ -2,6 +2,7 @@
 #ifndef _MMIX_KERNEL_USER_ENTRY_H
 #define _MMIX_KERNEL_USER_ENTRY_H
 
+#include <uapi/asm/rstack.h>
 #include "entry.h"
 #include "user_rstack.h"
 
@@ -26,6 +27,9 @@ struct mmix_user_entry {
 	long error;
 	int fatal_signal;
 	bool exit_requested, exit_group;
+	bool rstack_sync_pending, rstack_query_pending;
+	struct mmix_rstack_query rstack_query;
+	void __user *rstack_query_output;
 	int exit_code;
 	struct mmix_user_capture capture;
 	struct pt_regs regs;

@@ -46,6 +46,12 @@ static int prepare_return(struct mmix_user_entry *entry)
 	unsigned long base, top, flags;
 	int error;
 
+	if (entry->rstack_sync_pending) {
+		if (entry->ops->write != mmix_user_write || !current->thread.rstack_chain)
+			return -EFAULT;
+		/* This result is still private; failure below must never return to user. */
+		state->regs.regs[231] = 0;
+	}
 	local_irq_save(flags);
 	local_irq_enable();
 	if (entry->ops->write == mmix_user_write && current->thread.rstack_chain) {
@@ -57,9 +63,18 @@ static int prepare_return(struct mmix_user_entry *entry)
 			return PTR_ERR(domain);
 		}
 	}
-	error = mmix_user_rstack_restore(entry->stack, entry->ops->write, entry->data, &base, &top);
+	error = mmix_user_rstack_materialize(entry->stack, entry->ops->write, entry->data);
 	if (domain)
 		mmix_rstack_domain_end(current->mm, domain);
+	if (!error && entry->rstack_query_pending) {
+		/* Arbitrary output may fault; never hold the owner mutex across this copy. */
+		state->regs.regs[231] = copy_to_user(entry->rstack_query_output,
+						     &entry->rstack_query,
+						     sizeof(entry->rstack_query)) ? -EFAULT : 0;
+		entry->rstack_query_pending = false;
+	}
+	if (!error)
+		error = mmix_user_rstack_prepare(entry->stack, &base, &top);
 	local_irq_restore(flags);
 	if (error)
 		return error;
@@ -71,6 +86,7 @@ static int prepare_return(struct mmix_user_entry *entry)
 		return -EFAULT;
 	memcpy(entry->regs.regs, mmix_user_rstack_state(entry->stack)->regs.regs,
 	       sizeof(entry->regs.regs));
+	entry->rstack_sync_pending = false;
 	return 0;
 }
 
@@ -190,7 +206,9 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	if (!error)
 		return 0;
 failed:
-	if (!entry->fatal_signal && error == -EFAULT && entry->ops->write == mmix_user_write)
+	if (!entry->fatal_signal && (error == -EFAULT || entry->rstack_sync_pending ||
+				     entry->rstack_query_pending) &&
+	    entry->ops->write == mmix_user_write)
 		entry->fatal_signal = SIGSEGV;
 	entry->error = error;
 	return 1;

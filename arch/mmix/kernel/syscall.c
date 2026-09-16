@@ -6,8 +6,60 @@
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/unistd.h>
+#include <linux/uaccess.h>
 #include <asm/page.h>
+#include <asm/rstack.h>
+#include <uapi/asm/rstack.h>
 #include "user_entry.h"
+
+static struct mmix_rstack_domain *rstack_syscall_begin(struct mmix_user_entry *entry)
+{
+	struct mmix_user_state *state;
+
+	if (!current->thread.rstack_chain)
+		return ERR_PTR(-EFAULT);
+	state = mmix_user_rstack_state(entry->stack);
+	if (mmix_user_rstack_validate(state))
+		return ERR_PTR(-EFAULT);
+	return mmix_rstack_domain_begin(current->mm, current->thread.rstack_chain,
+					state->pending.start,
+					state->pending.count * sizeof(unsigned long));
+}
+
+static long rstack_sync(struct mmix_user_entry *entry)
+{
+	struct mmix_rstack_domain *domain = rstack_syscall_begin(entry);
+
+	if (IS_ERR(domain))
+		return PTR_ERR(domain);
+	mmix_rstack_domain_end(current->mm, domain);
+	/* Dispatch defers success until owned materialization and return preparation. */
+	return 0;
+}
+
+static long rstack_query(struct mmix_user_entry *entry, unsigned long output)
+{
+	struct mmix_rstack_query *query = &entry->rstack_query;
+	struct mmix_rstack_domain *domain;
+	unsigned long flags;
+
+	if (output & 7)
+		return -EINVAL;
+	if (!access_ok((void __user *)output, sizeof(*query)))
+		return -EFAULT;
+	domain = rstack_syscall_begin(entry);
+	if (IS_ERR(domain))
+		return PTR_ERR(domain);
+	spin_lock_irqsave(&current->sighand->siglock, flags);
+	query->chain_id = current->thread.rstack_chain;
+	query->sigmask = current->blocked.sig[0] & ~(sigmask(SIGKILL) | sigmask(SIGSTOP));
+	spin_unlock_irqrestore(&current->sighand->siglock, flags);
+	mmix_rstack_domain_end(current->mm, domain);
+	/* Copy after materialization, including when output aliases pending backing. */
+	entry->rstack_query_output = (void __user *)output;
+	entry->rstack_query_pending = true;
+	return 0;
+}
 
 SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len, unsigned long, prot, unsigned long,
 		flags, unsigned long, fd, unsigned long, offset)
@@ -62,7 +114,12 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 	current->thread.exec_committed = false;
 	/* The user snapshot is owned and the resident entry is released. */
 	local_irq_enable();
-	if (nr < ARRAY_SIZE(syscall_table)) {
+	/* Entry-dependent services complete through the owned return path. */
+	if (nr == __NR_mmix_rstack_sync) {
+		result = rstack_sync(entry);
+	} else if (nr == __NR_mmix_rstack_query) {
+		result = rstack_query(entry, args[0]);
+	} else if (nr < ARRAY_SIZE(syscall_table)) {
 		function = syscall_table[array_index_nospec(nr, ARRAY_SIZE(syscall_table))];
 		result = function(args[0], args[1], args[2], args[3], args[4], args[5]);
 	}
@@ -80,6 +137,14 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 	     signal_pending(current) && sigismember(&current->pending.signal, SIGSEGV))) {
 		entry->fatal_signal = fatal_signal_pending(current) ? SIGKILL : SIGSEGV;
 		return -EFAULT;
+	}
+	if (nr == __NR_mmix_rstack_sync) {
+		if (result) {
+			entry->fatal_signal = SIGSEGV;
+			return -EFAULT;
+		}
+		entry->rstack_sync_pending = true;
+		return 0;
 	}
 	regs->regs[231] = result;
 	mmix_user_rstack_state(entry->stack)->regs.regs[231] = result;

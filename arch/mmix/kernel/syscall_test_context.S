@@ -9,6 +9,12 @@ mmix_syscall_test_start:
 	JMP .
 .globl mmix_syscall_test_deep
 mmix_syscall_test_deep:
+	SETL r239,__NR_nanosleep
+	JMP .Ldeep
+.globl mmix_syscall_test_sync
+mmix_syscall_test_sync:
+	SETL r239,__NR_mmix_rstack_sync
+.Ldeep:
 	SETL r32,64
 	PUSHJ r31,.Lrecursive
 	SETL r231,0x1234
@@ -29,7 +35,7 @@ mmix_syscall_test_deep:
 .Lagain:
 	OR r231,r238,0
 	SETL r232,0
-	SETL r237,__NR_nanosleep
+	OR r237,r239,0
 	TRAP 1,0,0
 	BNZ r231,.Lbad
 	SUBU r240,r240,1

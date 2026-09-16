@@ -5,5 +5,6 @@
 extern const unsigned char mmix_syscall_test_start[];
 extern const unsigned char mmix_syscall_test_end[];
 extern const unsigned char mmix_syscall_test_deep[];
+extern const unsigned char mmix_syscall_test_sync[];
 
 #endif

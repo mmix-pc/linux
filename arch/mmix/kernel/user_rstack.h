@@ -35,12 +35,18 @@ int mmix_user_rstack_window(const struct mmix_user_capture *capture, unsigned lo
 int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 			     const struct mmix_user_capture *capture, unsigned long pc);
 int mmix_user_rstack_validate(const struct mmix_user_state *state);
+int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,
+				 int (*write)(void *, unsigned long, const void *, size_t),
+				 void *arg);
+int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
+			     unsigned long *base, unsigned long *top);
 int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
 			     int (*write)(void *arg, unsigned long address, const void *data,
 					  size_t size),
 			     void *arg, unsigned long *base, unsigned long *top);
 #ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_user_rstack_fail_after(int step);
+void mmix_user_rstack_write_limit(long bytes);
 #endif
 #if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 long mmix_user_rstack_live(void);

@@ -6,6 +6,9 @@
 #include <linux/mman.h>
 #include <linux/mm.h>
 #include <linux/sched/mm.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/task.h>
+#include <asm/rstack.h>
 #include <linux/shmem_fs.h>
 #include <linux/syscalls.h>
 #include <linux/time.h>
@@ -25,7 +28,10 @@ struct syscall_test {
 	struct mm_struct *mm;
 	struct mmix_user_rstack_state *stack;
 	struct user_regs_struct before;
-	bool deep;
+	bool deep, sync, inject_pending;
+	unsigned int fault;
+	unsigned long base;
+	u64 chain;
 	unsigned int stops;
 	long result;
 };
@@ -33,7 +39,8 @@ struct syscall_test {
 static int observe_syscall(struct mmix_user_entry *entry, void *data)
 {
 	struct syscall_test *t = data;
-	struct user_regs_struct *regs = &mmix_user_rstack_state(entry->stack)->regs;
+	struct mmix_user_state *state = mmix_user_rstack_state(entry->stack);
+	struct user_regs_struct *regs = &state->regs;
 	unsigned long nr = t->before.regs[237];
 	unsigned int i;
 	int error;
@@ -44,6 +51,11 @@ static int observe_syscall(struct mmix_user_entry *entry, void *data)
 		if (entry->regs.syscall_nr == 0xffff) {
 			t->result = regs->regs[231];
 			return 1;
+		}
+		if (t->sync) {
+			KUNIT_EXPECT_EQ(t->test, entry->regs.syscall_nr, __NR_mmix_rstack_sync);
+			if (!t->stops)
+				KUNIT_EXPECT_GT(t->test, state->pending.count, 0UL);
 		}
 		t->stops++;
 		return mmix_user_syscall(entry, NULL);
@@ -56,7 +68,27 @@ static int observe_syscall(struct mmix_user_entry *entry, void *data)
 		for (i = 0; i < 6; i++)
 			KUNIT_EXPECT_EQ(t->test, entry->regs.syscall_args[i],
 					t->before.regs[231 + i]);
+		if (t->inject_pending) {
+			state->pending.start = regs->r_o - 16;
+			state->pending.count = 2;
+			state->pending.data[0] = 0x12345678;
+			state->pending.data[1] = 0xabcdef;
+		}
 		error = mmix_user_syscall(entry, NULL);
+		if (t->fault == 4)
+			KUNIT_EXPECT_TRUE(t->test, entry->rstack_query_pending);
+		if (t->fault == 1 || t->fault == 2 || t->fault == 4) {
+			mmix_user_rstack_write_limit(t->fault == 2 ? 8 : 0);
+		} else if (t->fault == 3) {
+			local_irq_enable();
+			KUNIT_EXPECT_EQ(t->test,
+					mmix_rstack_domain_release(current->mm, t->chain), 0);
+			local_irq_disable();
+		}
+		if (t->fault == 5)
+			state->pending.count++;
+		if (nr == __NR_mmix_rstack_sync)
+			KUNIT_EXPECT_TRUE(t->test, entry->rstack_sync_pending);
 		KUNIT_EXPECT_EQ(t->test, error, 0);
 		/* Service results must not destroy the original restart metadata. */
 		KUNIT_EXPECT_EQ(t->test, (unsigned long)entry->regs.syscall_nr, nr);
@@ -76,6 +108,7 @@ static int observe_syscall(struct mmix_user_entry *entry, void *data)
 	KUNIT_EXPECT_EQ(t->test, regs->r_l, t->before.r_l);
 	KUNIT_EXPECT_EQ(t->test, regs->r_o, t->before.r_o);
 	KUNIT_EXPECT_EQ(t->test, regs->r_a, t->before.r_a);
+	KUNIT_EXPECT_EQ(t->test, regs->r_b, t->before.r_b);
 	KUNIT_EXPECT_EQ(t->test, regs->r_d, t->before.r_d);
 	KUNIT_EXPECT_EQ(t->test, regs->r_e, t->before.r_e);
 	KUNIT_EXPECT_EQ(t->test, regs->r_h, t->before.r_h);
@@ -109,13 +142,14 @@ static long call_user(struct syscall_test *t, unsigned long nr, unsigned long a0
 	regs->pc = CODE;
 	regs->r_g = 230;
 	regs->r_l = 64;
-	regs->r_o = STACK;
-	state->pending.start = STACK;
+	regs->r_o = t->base + (t->inject_pending ? 16 : 0);
+	state->pending.start = regs->r_o;
 	for (i = 0; i < 256; i++)
 		if (i < 64 || i >= 230)
 			regs->regs[i] = 0x1234567800000000UL + i * 0x101;
 	regs->regs[254] = MMIX_TASK_SIZE;
 	regs->r_a = 0x30000;
+	regs->r_b = 0x112;
 	regs->r_d = 0x123;
 	regs->r_e = 0x234;
 	regs->r_h = 0x345;
@@ -145,6 +179,7 @@ static int syscall_test_init(struct kunit *test)
 		return -ENOMEM;
 	test->priv = t;
 	t->test = test;
+	t->base = STACK;
 	t->stack = mmix_user_rstack_alloc();
 	if (!t->stack)
 		return -ENOMEM;
@@ -183,7 +218,7 @@ static void syscall_test_exit(struct kunit *test)
 static void numbers_and_errors(struct kunit *test)
 {
 	struct syscall_test *t = test->priv;
-	unsigned long invalid[] = { 244,
+	unsigned long invalid[] = { __NR_mmix_rstack_jump,
 				    __NR_syscalls,
 				    __NR_syscalls + 1,
 				    1UL << 32 | __NR_getpid,
@@ -343,10 +378,112 @@ static void deep_sleeping_calls_case(struct kunit *test)
 	syscall_test_exit(test);
 }
 
+static int sync_fault_child(void *data)
+{
+	struct syscall_test *t = data;
+
+	current->thread.rstack_chain = t->chain;
+	call_user(t, t->fault == 4 ? __NR_mmix_rstack_query : __NR_mmix_rstack_sync,
+		  DATA, 2, 3, 4, 5, 6);
+	return 99;
+}
+
+static void rstack_services_case(struct kunit *test)
+{
+	struct syscall_test *t;
+	struct mmix_rstack_query query;
+	struct mmix_user_state *state;
+	sigset_t old_mask = current->blocked, mask;
+	u64 old_chain = current->thread.rstack_chain;
+	__sighandler_t handler = current->sighand->action[SIGCHLD - 1].sa.sa_handler;
+	struct kernel_clone_args args = { .fn = sync_fault_child, .exit_signal = SIGCHLD };
+	unsigned int i;
+	int error, status;
+	pid_t child;
+
+	KUNIT_ASSERT_EQ(test, syscall_test_init(test), 0);
+	t = test->priv;
+	t->mm->mmap_base = TASK_UNMAPPED_BASE;
+	error = mmix_rstack_domain_create(t->mm, 0, &t->chain, &t->base);
+	KUNIT_EXPECT_EQ(test, error, 0);
+	if (error)
+		goto out;
+	current->thread.rstack_chain = t->chain;
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGUSR1);
+	sigaddset(&mask, SIGKILL);
+	sigaddset(&mask, SIGSTOP);
+	set_current_blocked(&mask);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_sync, ~0UL, 2, 3, 4, 5, 6), 0L);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, DATA, 0, 0, 0, 0, 0), 0L);
+	KUNIT_EXPECT_EQ(test, copy_from_user(&query, (void __user *)DATA, sizeof(query)), 0UL);
+	KUNIT_EXPECT_EQ(test, query.chain_id, t->chain);
+	KUNIT_EXPECT_EQ(test, query.sigmask, (u64)sigmask(SIGUSR1));
+	sigaddset(&mask, SIGUSR2);
+	set_current_blocked(&mask);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, DATA, 0, 0, 0, 0, 0), 0L);
+	KUNIT_EXPECT_EQ(test, copy_from_user(&query, (void __user *)DATA, sizeof(query)), 0UL);
+	KUNIT_EXPECT_EQ(test, query.chain_id, t->chain);
+	KUNIT_EXPECT_EQ(test, query.sigmask, (u64)(sigmask(SIGUSR1) | sigmask(SIGUSR2)));
+	sigdelset(&mask, SIGUSR2);
+	set_current_blocked(&mask);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, DATA + 1, 0, 0, 0, 0, 0),
+			-EINVAL);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, 0, 0, 0, 0, 0, 0), -EFAULT);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, MMIX_TASK_SIZE - 8,
+					0, 0, 0, 0, 0), -EFAULT);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, DATA + PAGE_SIZE - 8,
+					0, 0, 0, 0, 0), -EFAULT);
+	KUNIT_EXPECT_EQ(test, sys_mprotect(DATA, PAGE_SIZE, PROT_READ), 0);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, DATA, 0, 0, 0, 0, 0), -EFAULT);
+	KUNIT_EXPECT_EQ(test, sys_mprotect(DATA, PAGE_SIZE, PROT_READ | PROT_WRITE), 0);
+	t->inject_pending = true;
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_mmix_rstack_query, t->base, 0, 0, 0, 0, 0), 0L);
+	KUNIT_EXPECT_EQ(test, copy_from_user(&query, (void __user *)t->base, sizeof(query)), 0UL);
+	KUNIT_EXPECT_EQ(test, query.chain_id, t->chain);
+	KUNIT_EXPECT_EQ(test, query.sigmask, (u64)sigmask(SIGUSR1));
+	args.fn_arg = t;
+	kernel_sigaction(SIGCHLD, SIG_DFL);
+	for (i = 1; i <= 5; i++) {
+		t->fault = i;
+		child = kernel_clone(&args);
+		KUNIT_EXPECT_GT(test, child, 0);
+		if (child > 0) {
+			status = 0;
+			KUNIT_EXPECT_EQ(test, kernel_wait(child, &status), child);
+			KUNIT_EXPECT_EQ(test, status, SIGSEGV);
+			KUNIT_EXPECT_EQ(test, t->stops, 1U);
+		}
+		mmix_user_rstack_write_limit(-1);
+	}
+	kernel_sigaction(SIGCHLD, handler);
+	t->fault = 0;
+	t->inject_pending = false;
+	t->deep = true;
+	t->sync = true;
+	t->stops = 0;
+	state = mmix_user_rstack_state(t->stack);
+	memset(state, 0, sizeof(*state));
+	state->regs.r_g = 230;
+	state->regs.r_o = t->base;
+	state->pending.start = t->base;
+	state->regs.regs[254] = MMIX_TASK_SIZE;
+	state->regs.pc = CODE + mmix_syscall_test_sync - mmix_syscall_test_start;
+	KUNIT_EXPECT_EQ(test, mmix_user_enter(t->stack, &test_ops, t), 0);
+	KUNIT_EXPECT_EQ(test, t->stops, 20U);
+	KUNIT_EXPECT_EQ(test, t->result, 0x1234L);
+	kunit_info(test, "MMIX_RSTACK sync=20 query=ok alias=ok fatal=5 preserved=ok\n");
+out:
+	set_current_blocked(&old_mask);
+	current->thread.rstack_chain = old_chain;
+	syscall_test_exit(test);
+}
+
 static struct kunit_case syscall_cases[] = { KUNIT_CASE(numbers_and_errors_case),
 					     KUNIT_CASE(six_arguments_case),
 					     KUNIT_CASE(sleeping_calls_case),
 					     KUNIT_CASE(deep_sleeping_calls_case),
+					     KUNIT_CASE(rstack_services_case),
 					     {} };
 static struct kunit_suite syscall_suite = {
 	.name = "mmix_syscall",

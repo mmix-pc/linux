@@ -242,7 +242,6 @@ static void numbers_and_errors(struct kunit *test)
 			-EOPNOTSUPP);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_execve, 0, 0, 0, 0, 0, 0), -EFAULT);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_execveat, 0, 0, 0, 0, 0, 0), -EFAULT);
-	KUNIT_EXPECT_EQ(test, call_user(t, __NR_rt_sigreturn, 0, 0, 0, 0, 0, 0), -ENOSYS);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_getpid, 0, 0, 0, 0, 0, 0),
 			(long)task_tgid_vnr(current));
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_close, ~0UL, 0, 0, 0, 0, 0), -EBADF);

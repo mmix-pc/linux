@@ -11,6 +11,7 @@
 #include <asm/irqflags.h>
 #include "process.h"
 #include "user_entry.h"
+#include "signal.h"
 
 struct mmix_rstack {
 	struct work_struct work;
@@ -90,6 +91,8 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 void arch_release_task_struct(struct task_struct *task)
 {
 	/* Final task release, including failed forks; never the running task. */
+	mmix_signal_free(task);
+	kfree(task->thread.user_entry);
 	mmix_user_rstack_free(&task->thread.user_state);
 	if (task->thread.rstack)
 		schedule_work(&task->thread.rstack->work);
@@ -202,6 +205,11 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		state = mmix_user_rstack_state(task->thread.user_state);
 		state->regs.regs[231] = 0;
 		task->thread.rstack_chain = current->thread.rstack_chain;
+		err = mmix_signal_dup(task);
+		if (err) {
+			mmix_user_rstack_free(&task->thread.user_state);
+			goto fail;
+		}
 	}
 	task->thread.rstack = stack;
 	return 0;
@@ -252,6 +260,7 @@ void machine_restart(char *command)
 
 void flush_thread(void)
 {
+	mmix_signal_free(current);
 	current->thread.rstack_chain = 0;
 	/* Crossing the exec commit point discards the previous user snapshot. */
 	current->thread.exec_pending = false;

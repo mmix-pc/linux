@@ -13,7 +13,7 @@ obj-y += user_entry.o user_entry_context.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_entry_test.o user_entry_test_context.o
 
 obj-$(CONFIG_MMIX_BOOT_TEST) += user_fault_test.o
-obj-y += syscall.o
+obj-y += syscall.o signal.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += syscall_test.o syscall_test_context.o
 obj-y += exec.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += exec_test.o exec_test_image.o
@@ -33,3 +33,4 @@ $(obj)/lifecycle_test_user.elf: $(obj)/lifecycle_test_user.o $(src)/exec_test_us
 $(obj)/lifecycle_test_context.o: $(obj)/lifecycle_test_user.elf
 endif
 obj-$(CONFIG_MMIX_USER_TEST) += user_test.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += signal_test.o signal_test_context.o

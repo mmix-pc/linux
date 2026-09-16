@@ -28,6 +28,7 @@ struct mmix_user_entry {
 	int fatal_signal;
 	bool exit_requested, exit_group;
 	bool rstack_sync_pending, rstack_query_pending;
+	bool syscall_result;
 	struct mmix_rstack_query rstack_query;
 	void __user *rstack_query_output;
 	int exit_code;

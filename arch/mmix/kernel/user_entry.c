@@ -9,6 +9,7 @@
 #include <asm/irq_regs.h>
 #include <asm/rstack.h>
 #include "user_entry.h"
+#include "signal.h"
 #include "../mm/fault.h"
 
 struct mmix_user_entry *mmix_active_user;
@@ -31,6 +32,12 @@ int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 	if (entry->event != MMIX_USER_FAULT)
 		return -EOPNOTSUPP;
 	entry->fatal_signal = mmix_handle_page_fault(&entry->regs);
+	if (entry->fatal_signal && current->thread.rstack_chain) {
+		local_irq_enable();
+		force_sig(entry->fatal_signal);
+		local_irq_disable();
+		entry->fatal_signal = 0;
+	}
 	return entry->fatal_signal ? -EFAULT : 0;
 }
 
@@ -101,23 +108,39 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 
 	if (!ops)
 		ops = &native_ops;
+	if (current->thread.user_entry)
+		return -EBUSY;
 	if (!stack || !ops->event)
 		return -EINVAL;
 	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
+	current->thread.user_entry = entry;
 	entry->stack = stack;
 	current->thread.exec_pending = false;
 	current->thread.exec_committed = false;
 	entry->ops = ops;
 	entry->data = data;
 	entry->shadow_physical = __pa(mmix_user_rstack_shadow(stack));
+	state = mmix_user_rstack_state(stack);
+	entry->regs.pc = state->regs.pc;
+	entry->regs.r_ww = state->regs.pc;
+	entry->regs.r_xx = 1UL << 63;
+	entry->regs.syscall_nr = -1;
+	memcpy(entry->regs.regs, state->regs.regs, sizeof(entry->regs.regs));
+	if (ops->write == mmix_user_write && current->thread.rstack_chain) {
+		local_irq_save(flags);
+		local_irq_enable();
+		error = mmix_signal_pending(entry, false);
+		local_irq_restore(flags);
+		if (error < 0) {
+			fatal_signal = entry->fatal_signal;
+			goto out;
+		}
+	}
 	error = prepare_return(entry);
 	if (error)
 		goto out;
-	state = mmix_user_rstack_state(stack);
-	entry->regs.r_ww = state->regs.pc;
-	entry->regs.r_xx = 1UL << 63;
 	local_irq_save(flags);
 	mmix_user_run(entry);
 	error = entry->error;
@@ -127,6 +150,7 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	exit_code = entry->exit_code;
 	local_irq_restore(flags);
 out:
+	current->thread.user_entry = NULL;
 	kfree(entry);
 	if (exit_requested) {
 		local_irq_enable();
@@ -148,7 +172,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	struct pt_regs *regs = &entry->regs;
 	struct pt_regs *old_regs;
 	unsigned long pending;
-	bool syscall;
+	bool syscall, prepared = false;
 	int error;
 
 	if (entry->error) {
@@ -202,7 +226,23 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		mmix_ack_requests(pending & (0xffUL << 32));
 	}
 	local_irq_disable();
-	error = prepare_return(entry);
+	if (entry->ops->write == mmix_user_write && current->thread.rstack_chain) {
+		/* Explicit services must complete before a handler can observe them. */
+		if (entry->rstack_sync_pending || entry->rstack_query_pending) {
+			error = prepare_return(entry);
+			if (error)
+				goto failed;
+			prepared = true;
+		}
+		local_irq_enable();
+		error = mmix_signal_pending(entry, prepared);
+		local_irq_disable();
+		if (error < 0)
+			goto failed;
+		if (error > 0)
+			prepared = false;
+	}
+	error = prepared ? 0 : prepare_return(entry);
 	if (!error)
 		return 0;
 failed:

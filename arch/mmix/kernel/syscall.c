@@ -11,6 +11,7 @@
 #include <asm/rstack.h>
 #include <uapi/asm/rstack.h>
 #include "user_entry.h"
+#include "signal.h"
 
 static struct mmix_rstack_domain *rstack_syscall_begin(struct mmix_user_entry *entry)
 {
@@ -115,6 +116,13 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 	/* The user snapshot is owned and the resident entry is released. */
 	local_irq_enable();
 	/* Entry-dependent services complete through the owned return path. */
+	*task_pt_regs(current) = *regs;
+	if (nr == __NR_rt_sigreturn) {
+		int error = mmix_signal_return(entry);
+
+		local_irq_disable();
+		return error;
+	}
 	if (nr == __NR_mmix_rstack_sync) {
 		result = rstack_sync(entry);
 	} else if (nr == __NR_mmix_rstack_query) {
@@ -146,6 +154,7 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		entry->rstack_sync_pending = true;
 		return 0;
 	}
+	entry->syscall_result = true;
 	regs->regs[231] = result;
 	mmix_user_rstack_state(entry->stack)->regs.regs[231] = result;
 	return 0;

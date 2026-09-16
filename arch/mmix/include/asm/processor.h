@@ -18,6 +18,8 @@ struct task_struct;
 struct pt_regs;
 struct mmix_rstack;
 struct mmix_user_rstack_state;
+struct mmix_signal_activation;
+struct mmix_user_entry;
 
 struct thread_struct {
 	unsigned long save;
@@ -31,6 +33,8 @@ struct thread_struct {
 	struct mmix_rstack *rstack;
 	struct mmix_user_rstack_state *user_state;
 	u64 rstack_chain;
+	struct mmix_signal_activation *signals;
+	struct mmix_user_entry *user_entry;
 };
 #define INIT_THREAD { }
 

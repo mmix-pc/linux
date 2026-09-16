@@ -20,6 +20,7 @@ struct mmix_signal_activation {
 	struct mmix_signal_activation *parent;
 	struct mmix_user_state state;
 	struct pt_regs regs;
+	stack_t altstack;
 	unsigned long frame;
 	u64 chain, handler_chain;
 };
@@ -132,6 +133,9 @@ static int setup_frame(struct mmix_user_entry *entry, struct ksignal *ksig,
 	}
 	activation->regs = entry->regs;
 	activation->frame = address;
+	activation->altstack.ss_sp = (void __user *)current->sas_ss_sp;
+	activation->altstack.ss_size = current->sas_ss_size;
+	activation->altstack.ss_flags = current->sas_ss_flags;
 	activation->chain = current->thread.rstack_chain;
 	frame->uc.uc_stack.ss_sp = (void __user *)current->sas_ss_sp;
 	frame->uc.uc_stack.ss_size = current->sas_ss_size;
@@ -333,6 +337,127 @@ int mmix_signal_return(struct mmix_user_entry *entry)
 	free_activation(activation);
 free:
 	kvfree(uc);
+fatal:
+	if (error)
+		entry->fatal_signal = SIGSEGV;
+	return error;
+}
+
+/* The environment is opaque: ownership does not authenticate a C invocation. */
+int mmix_signal_jump(struct mmix_user_entry *entry, unsigned long address)
+{
+	struct mmix_signal_activation *target = NULL, *activation;
+	struct mmix_user_state *live = mmix_user_rstack_state(entry->stack);
+	struct mmix_user_rstack_state *staged;
+	struct mmix_user_state *state;
+	struct mmix_rstack_domain *domain;
+	struct mmix_rstack_jump request;
+	unsigned long base, top;
+	int error;
+
+	if (address & 7)
+		return -EINVAL;
+	if (copy_from_user(&request, (void __user *)address, sizeof(request)))
+		return -EFAULT;
+	if (!request.chain_id || !request.result ||
+	    request.result != (long)(int)request.result ||
+	    request.flags & ~MMIX_RSTACK_JUMP_SETMASK ||
+	    (!(request.flags & MMIX_RSTACK_JUMP_SETMASK) && request.sigmask) ||
+	    (request.landing & 3) || (request.environment & 7))
+		return -EINVAL;
+	if (!user_pc(request.landing) || !request.environment ||
+	    !access_ok((void __user *)request.environment, sizeof(unsigned long)))
+		return -EFAULT;
+	if (!current->thread.rstack_chain)
+		return -ESRCH;
+	if (request.chain_id != current->thread.rstack_chain) {
+		for (target = current->thread.signals; target; target = target->parent)
+			if (target->chain == request.chain_id)
+				break;
+		if (!target)
+			return -ESRCH;
+	}
+
+	/* Allocation/materialization failures cannot pretend recovery succeeded. */
+	staged = mmix_user_rstack_dup(entry->stack);
+	if (!staged) {
+		error = -ENOMEM;
+		goto fatal;
+	}
+	state = mmix_user_rstack_state(staged);
+	if (target) {
+		*state = target->state;
+		/* Leave-time globals/specials, surviving locals and temporary FP/SP. */
+		state->regs = live->regs;
+		memcpy(state->regs.regs, target->state.regs.regs,
+		       230 * sizeof(unsigned long));
+		state->regs.r_g = target->state.regs.r_g;
+		state->regs.r_l = target->state.regs.r_l;
+		state->regs.r_o = target->state.regs.r_o;
+		state->regs.regs[253] = target->state.regs.regs[253];
+		state->regs.regs[254] = target->state.regs.regs[254];
+	}
+	state->regs.pc = request.landing;
+	state->regs.r_j = request.landing;
+	state->regs.regs[231] = request.environment;
+	state->regs.regs[232] = request.result;
+	error = mmix_user_rstack_validate(state);
+	if (error)
+		goto free;
+	domain = mmix_rstack_domain_begin(current->mm, request.chain_id,
+					  state->pending.start,
+					  state->pending.count * sizeof(unsigned long));
+	if (IS_ERR(domain)) {
+		error = PTR_ERR(domain);
+		goto free;
+	}
+	error = mmix_user_rstack_materialize(staged, mmix_user_write, NULL);
+	mmix_rstack_domain_end(current->mm, domain);
+	if (error)
+		goto free;
+	memset(&state->pending, 0, sizeof(state->pending));
+	state->pending.start = state->regs.r_o;
+	error = mmix_user_rstack_prepare(staged, &base, &top);
+	if (error)
+		goto free;
+
+	/* Commit is indivisible with respect to user execution and signal delivery. */
+	*live = *state;
+	if (request.flags & MMIX_RSTACK_JUMP_SETMASK) {
+		sigset_t mask = { .sig = { request.sigmask } };
+
+		set_current_blocked(&mask);
+	}
+	if (target) {
+		current->sas_ss_sp = (unsigned long)target->altstack.ss_sp;
+		current->sas_ss_size = target->altstack.ss_size;
+		current->sas_ss_flags = target->altstack.ss_flags;
+	}
+	current->thread.rstack_chain = request.chain_id;
+	current->restart_block.fn = do_no_restart_syscall;
+	clear_restore_sigmask();
+	entry->syscall_result = false;
+	entry->rstack_sync_pending = false;
+	entry->rstack_query_pending = false;
+	entry->regs.pc = request.landing;
+	entry->regs.r_ww = request.landing;
+	entry->regs.r_xx = 1UL << 63;
+	entry->regs.r_yy = 0;
+	entry->regs.r_zz = 0;
+	entry->regs.syscall_nr = -1;
+	memset(entry->regs.syscall_args, 0, sizeof(entry->regs.syscall_args));
+	while (target) {
+		activation = current->thread.signals;
+		current->thread.signals = activation->parent;
+		if (activation == target)
+			target = NULL;
+		error = mmix_rstack_domain_release(current->mm, activation->handler_chain);
+		free_activation(activation);
+		if (error)
+			break;
+	}
+free:
+	mmix_user_rstack_free(&staged);
 fatal:
 	if (error)
 		entry->fatal_signal = SIGSEGV;

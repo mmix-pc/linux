@@ -8,6 +8,7 @@ struct mmix_user_entry;
 struct task_struct;
 
 int mmix_signal_pending(struct mmix_user_entry *entry, bool materialized);
+int mmix_signal_jump(struct mmix_user_entry *entry, unsigned long address);
 int mmix_signal_return(struct mmix_user_entry *entry);
 void mmix_signal_free(struct task_struct *task);
 int mmix_signal_dup(struct task_struct *task);

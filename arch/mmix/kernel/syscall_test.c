@@ -218,8 +218,7 @@ static void syscall_test_exit(struct kunit *test)
 static void numbers_and_errors(struct kunit *test)
 {
 	struct syscall_test *t = test->priv;
-	unsigned long invalid[] = { __NR_mmix_rstack_jump,
-				    __NR_syscalls,
+	unsigned long invalid[] = { __NR_syscalls,
 				    __NR_syscalls + 1,
 				    1UL << 32 | __NR_getpid,
 				    1UL << 63 | __NR_getpid,

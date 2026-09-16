@@ -123,7 +123,13 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		local_irq_disable();
 		return error;
 	}
-	if (nr == __NR_mmix_rstack_sync) {
+	if (nr == __NR_mmix_rstack_jump) {
+		result = mmix_signal_jump(entry, args[0]);
+		if (!result || entry->fatal_signal) {
+			local_irq_disable();
+			return result;
+		}
+	} else if (nr == __NR_mmix_rstack_sync) {
 		result = rstack_sync(entry);
 	} else if (nr == __NR_mmix_rstack_query) {
 		result = rstack_query(entry, args[0]);

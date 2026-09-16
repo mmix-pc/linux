@@ -34,3 +34,4 @@ $(obj)/lifecycle_test_context.o: $(obj)/lifecycle_test_user.elf
 endif
 obj-$(CONFIG_MMIX_USER_TEST) += user_test.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += signal_test.o signal_test_context.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += rstack_jump_test.o rstack_jump_test_context.o

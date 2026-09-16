@@ -7,6 +7,7 @@
 #include <linux/sched/signal.h>
 #include <linux/uaccess.h>
 #include <asm/irq_regs.h>
+#include <asm/rstack.h>
 #include "user_entry.h"
 #include "../mm/fault.h"
 
@@ -40,10 +41,26 @@ static const struct mmix_user_entry_ops native_ops = {
 
 static int prepare_return(struct mmix_user_entry *entry)
 {
-	unsigned long base, top;
+	struct mmix_user_state *state = mmix_user_rstack_state(entry->stack);
+	struct mmix_rstack_domain *domain = NULL;
+	unsigned long base, top, flags;
 	int error;
 
+	local_irq_save(flags);
+	local_irq_enable();
+	if (entry->ops->write == mmix_user_write && current->thread.rstack_chain) {
+		domain = mmix_rstack_domain_begin(current->mm, current->thread.rstack_chain,
+						  state->pending.start,
+						  state->pending.count * sizeof(unsigned long));
+		if (IS_ERR(domain)) {
+			local_irq_restore(flags);
+			return PTR_ERR(domain);
+		}
+	}
 	error = mmix_user_rstack_restore(entry->stack, entry->ops->write, entry->data, &base, &top);
+	if (domain)
+		mmix_rstack_domain_end(current->mm, domain);
+	local_irq_restore(flags);
 	if (error)
 		return error;
 	entry->shadow_base = base;

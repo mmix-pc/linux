@@ -769,7 +769,7 @@ mprotect_fixup(struct vma_iterator *vmi, struct mmu_gather *tlb,
 	unsigned long charged = 0;
 	int error;
 
-	if (vma_is_sealed(vma))
+	if (vma_is_sealed(vma) || vma_is_arch_owned(vma))
 		return -EPERM;
 
 	if (vma_flags_same_pair(&old_vma_flags, &new_vma_flags)) {
@@ -908,6 +908,10 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	 */
 	error = -EINVAL;
 	if ((pkey != -1) && !mm_pkey_is_allocated(current->mm, pkey))
+		goto out;
+
+	error = -EPERM;
+	if (range_has_arch_owned_vma(current->mm, start, end))
 		goto out;
 
 	vma_iter_init(&vmi, current->mm, start);

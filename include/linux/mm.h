@@ -428,6 +428,18 @@ enum {
 #define VM_HUGETLB	INIT_VM_FLAG(HUGETLB)
 #define VM_SYNC		INIT_VM_FLAG(SYNC)
 #define VM_ARCH_1	INIT_VM_FLAG(ARCH_1)
+
+#ifndef VM_ARCH_OWNED
+#define VM_ARCH_OWNED VM_NONE
+#endif
+
+static inline bool vma_is_arch_owned(const struct vm_area_struct *vma)
+{
+	return vma->vm_flags & VM_ARCH_OWNED;
+}
+
+bool range_has_arch_owned_vma(struct mm_struct *mm, unsigned long start,
+			      unsigned long end);
 #define VM_WIPEONFORK	INIT_VM_FLAG(WIPEONFORK)
 #define VM_DONTDUMP	INIT_VM_FLAG(DONTDUMP)
 #ifdef CONFIG_MEM_SOFT_DIRTY

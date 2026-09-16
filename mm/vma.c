@@ -1465,6 +1465,21 @@ static void reattach_vmas(struct ma_state *mas_detach)
 	__mt_destroy(mas_detach->tree);
 }
 
+bool range_has_arch_owned_vma(struct mm_struct *mm, unsigned long start,
+			      unsigned long end)
+{
+	VMA_ITERATOR(vmi, mm, start);
+	struct vm_area_struct *vma;
+
+	if (!VM_ARCH_OWNED)
+		return false;
+	mmap_assert_locked(mm);
+	for_each_vma_range(vmi, vma, end)
+		if (vma_is_arch_owned(vma))
+			return true;
+	return false;
+}
+
 /*
  * vms_gather_munmap_vmas() - Put all VMAs within a range into a maple tree
  * for removal at a later date.  Handles splitting first and last if necessary
@@ -1480,6 +1495,9 @@ static int vms_gather_munmap_vmas(struct vma_munmap_struct *vms,
 {
 	struct vm_area_struct *next = NULL;
 	int error;
+
+	if (range_has_arch_owned_vma(vms->vma->vm_mm, vms->start, vms->end))
+		return -EPERM;
 
 	/*
 	 * If we need to split any vma, do it now to save pain later.

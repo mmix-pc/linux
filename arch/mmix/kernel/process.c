@@ -201,6 +201,7 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		}
 		state = mmix_user_rstack_state(task->thread.user_state);
 		state->regs.regs[231] = 0;
+		task->thread.rstack_chain = current->thread.rstack_chain;
 	}
 	task->thread.rstack = stack;
 	return 0;
@@ -251,6 +252,7 @@ void machine_restart(char *command)
 
 void flush_thread(void)
 {
+	current->thread.rstack_chain = 0;
 	/* Crossing the exec commit point discards the previous user snapshot. */
 	current->thread.exec_pending = false;
 	current->thread.exec_committed = true;

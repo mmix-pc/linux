@@ -1290,7 +1290,9 @@ static bool is_discard(int behavior)
 }
 
 /*
- * We are restricted from madvise()'ing mseal()'d VMAs only in very particular
+ * Reject VMA-walking advice on architecture-owned mappings. POPULATE uses a
+ * separate, content-preserving fault path. For ordinary mappings, we are
+ * restricted from madvise()'ing mseal()'d VMAs only in very particular
  * circumstances - discarding of data from read-only anonymous SEALED mappings.
  *
  * This is because users cannot trivally discard data from these VMAs, and may
@@ -1299,6 +1301,10 @@ static bool is_discard(int behavior)
 static bool can_madvise_modify(struct madvise_behavior *madv_behavior)
 {
 	struct vm_area_struct *vma = madv_behavior->vma;
+
+	/* Owned backing must retain both its contents and inheritance policy. */
+	if (vma_is_arch_owned(vma))
+		return false;
 
 	/* If the VMA isn't sealed we're good. */
 	if (!vma_is_sealed(vma))

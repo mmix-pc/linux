@@ -1783,7 +1783,8 @@ static inline bool move_splits_huge_pmd(unsigned long dst_addr,
 
 static inline bool vma_move_compatible(struct vm_area_struct *vma)
 {
-	return !(vma->vm_flags & (VM_PFNMAP | VM_IO |  VM_HUGETLB |
+	return !vma_is_arch_owned(vma) &&
+	       !(vma->vm_flags & (VM_PFNMAP | VM_IO | VM_HUGETLB |
 				  VM_MIXEDMAP | VM_SHADOW_STACK));
 }
 

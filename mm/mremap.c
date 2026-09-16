@@ -1754,8 +1754,8 @@ static int check_prep_vma(struct vma_remap_struct *vrm)
 	if (!vma)
 		return -EFAULT;
 
-	/* If mseal()'d, mremap() is prohibited. */
-	if (vma_is_sealed(vma))
+	/* Sealed mappings and architecture-owned domains cannot be remapped. */
+	if (vma_is_sealed(vma) || vma_is_arch_owned(vma))
 		return -EPERM;
 
 	/* Align to hugetlb page size, if required. */

@@ -73,7 +73,9 @@ static int mseal_range(unsigned long start, unsigned long end)
 	err = mmap_write_lock_killable(current->mm);
 	if (err)
 		return err;
-	if (range_contains_unmapped(start, end))
+	if (range_has_arch_owned_vma(current->mm, start, end))
+		err = -EPERM;
+	else if (range_contains_unmapped(start, end))
 		err = -ENOMEM;
 	else
 		err = __mseal_range(start, end);

@@ -30,6 +30,7 @@ struct thread_struct {
 	bool exec_committed;
 	struct mmix_rstack *rstack;
 	struct mmix_user_rstack_state *user_state;
+	u64 rstack_chain;
 };
 #define INIT_THREAD { }
 

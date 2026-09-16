@@ -6,10 +6,8 @@
 #include <linux/sched.h>
 #include <linux/sizes.h>
 #include <asm/elf.h>
+#include <asm/rstack.h>
 #include "user_rstack.h"
-
-/* VM policy, not an ABI address or a hardware register-ring capacity. */
-#define USER_RSTACK_SIZE SZ_64K
 
 int mmix_elf_check(const struct elf64_hdr *hdr)
 {
@@ -40,7 +38,8 @@ int mmix_setup_exec(struct linux_binprm *bprm, const struct elf64_hdr *hdr)
 	struct mmix_user_rstack_state *stack;
 	struct mmix_user_state *state;
 	struct vm_area_struct *vma;
-	unsigned long base, mapped;
+	unsigned long mapped;
+	u64 chain;
 	int error = -ENOEXEC;
 
 	mmap_read_lock(current->mm);
@@ -57,19 +56,10 @@ unlock:
 	stack = mmix_user_rstack_alloc();
 	if (!stack)
 		return -ENOMEM;
-	base = vm_mmap(NULL, 0, USER_RSTACK_SIZE + 2 * PAGE_SIZE, PROT_NONE,
-		       MAP_PRIVATE | MAP_ANONYMOUS, 0);
-	if (IS_ERR_VALUE(base)) {
-		error = base;
+	error = mmix_rstack_domain_create(current->mm, 0, &chain, &mapped);
+	if (error)
 		goto free;
-	}
-	mapped = vm_mmap(NULL, base + PAGE_SIZE, USER_RSTACK_SIZE, PROT_READ | PROT_WRITE,
-			 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
-	if (IS_ERR_VALUE(mapped)) {
-		error = mapped;
-		vm_munmap(base, USER_RSTACK_SIZE + 2 * PAGE_SIZE);
-		goto free;
-	}
+	current->thread.rstack_chain = chain;
 	state = mmix_user_rstack_state(stack);
 	state->regs.r_o = mapped;
 	state->pending.start = mapped;

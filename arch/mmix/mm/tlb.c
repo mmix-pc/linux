@@ -3,6 +3,7 @@
 #include <linux/mm.h>
 #include <asm/cacheflush.h>
 #include <asm/mmu_context.h>
+#include <asm/rstack.h>
 #include <asm/tlbflush.h>
 #include "mmu.h"
 
@@ -41,11 +42,12 @@ void update_mmu_cache_range(struct vm_fault *vmf, struct vm_area_struct *vma,
 int init_new_context(struct task_struct *task, struct mm_struct *mm)
 {
 	mm->context.asid = 0;
-	return 0;
+	return mmix_rstack_mm_init(mm);
 }
 
 void destroy_context(struct mm_struct *mm)
 {
+	mmix_rstack_mm_destroy(mm);
 	flush_tlb_all();
 }
 

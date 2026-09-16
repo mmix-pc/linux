@@ -92,7 +92,7 @@ static int check_initial(struct mmix_user_entry *entry, struct exec_test *t)
 		return 9;
 	if (put_user(1UL, (unsigned long __user *)regs->r_o) ||
 	    get_user(value, (unsigned long __user *)(regs->r_o - 8)) != -EFAULT ||
-	    get_user(value, (unsigned long __user *)(regs->r_o + (64UL << 10))) != -EFAULT)
+	    get_user(value, (unsigned long __user *)(regs->r_o + (1UL << 20))) != -EFAULT)
 		return 10;
 	return 0;
 }

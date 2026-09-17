@@ -25,7 +25,7 @@ struct mmix_signal_activation {
 	u64 chain, handler_chain;
 };
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_long_t live_activations = ATOMIC_LONG_INIT(0);
 
 long mmix_signal_live(void)
@@ -38,7 +38,7 @@ static void free_activation(struct mmix_signal_activation *activation)
 {
 	if (!activation)
 		return;
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	atomic_long_dec(&live_activations);
 #endif
 	kvfree(activation);
@@ -49,7 +49,7 @@ static struct mmix_signal_activation *alloc_activation(void)
 	struct mmix_signal_activation *activation =
 		kvzalloc_obj(*activation);
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 	if (activation)
 		atomic_long_inc(&live_activations);
 #endif

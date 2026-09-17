@@ -13,7 +13,7 @@ int mmix_signal_return(struct mmix_user_entry *entry);
 void mmix_signal_free(struct task_struct *task);
 int mmix_signal_dup(struct task_struct *task);
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 long mmix_signal_live(void);
 #endif
 

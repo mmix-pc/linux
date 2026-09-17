@@ -194,7 +194,14 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	syscall = (regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
 		  !(pending & (0xffUL << 32));
 	/* Pending IRQs must not consume synchronous forced traps or translations. */
-	if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall &&
+	if (IS_ENABLED(CONFIG_MMIX_SIGNAL_TEST) && (regs->r_q & BIT_ULL(6)) &&
+	    (regs->r_xx >> 63) && !(pending & (0xffUL << 32)) && !syscall) {
+		/* Optional asynchronous injection; never replace a fault or syscall. */
+		mmix_ack_requests(BIT_ULL(6));
+		local_irq_enable();
+		force_sig(SIGUSR2);
+		local_irq_disable();
+	} else if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall &&
 	    regs->r_xx >> 32 != 0x03000000UL) {
 		entry->interrupts++;
 		old_regs = set_irq_regs(regs);

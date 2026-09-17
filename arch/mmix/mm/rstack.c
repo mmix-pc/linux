@@ -31,6 +31,22 @@ struct mmix_rstack_registry {
 	unsigned int count;
 };
 
+#ifdef CONFIG_MMIX_USER_TEST
+static atomic_long_t live_domains = ATOMIC_LONG_INIT(0);
+
+long mmix_rstack_domains_live(void)
+{
+	return atomic_long_read(&live_domains);
+}
+#endif
+
+static void account_domain(int delta)
+{
+#ifdef CONFIG_MMIX_USER_TEST
+	atomic_long_add(delta, &live_domains);
+#endif
+}
+
 #ifdef CONFIG_MMIX_BOOT_TEST
 static atomic_t allocation_failure = ATOMIC_INIT(-1);
 
@@ -88,6 +104,7 @@ void mmix_rstack_mm_destroy(struct mm_struct *mm)
 	list_for_each_entry_safe(domain, next, &registry->domains, list) {
 		WARN_ON_ONCE(refcount_read(&domain->refs) != 1);
 		list_del(&domain->list);
+		account_domain(-1);
 		kfree(domain);
 	}
 	kfree(registry);
@@ -175,6 +192,7 @@ int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
 	mark_domain(mm, domain, true);
 	refcount_set(&domain->refs, 1);
 	list_add_tail(&domain->list, &registry->domains);
+	account_domain(1);
 	*id = domain->id;
 	*base = backing;
 	mmap_write_unlock(mm);
@@ -213,6 +231,7 @@ int mmix_rstack_domain_release(struct mm_struct *mm, u64 id)
 		mark_domain(mm, domain, true);
 	} else {
 		list_del(&domain->list);
+		account_domain(-1);
 		registry->count--;
 		kfree(domain);
 	}
@@ -300,6 +319,7 @@ int mmix_rstack_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm)
 			return -ENOMEM;
 		refcount_set(&domain->refs, 1);
 		list_add_tail(&domain->list, &registry->domains);
+		account_domain(1);
 		registry->count++;
 		mark_domain(mm, domain, true);
 		id = domain->parent;

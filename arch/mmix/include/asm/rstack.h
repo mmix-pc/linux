@@ -18,6 +18,10 @@ struct mmix_rstack_domain *mmix_rstack_domain_begin(struct mm_struct *mm, u64 id
 void mmix_rstack_domain_end(struct mm_struct *mm, struct mmix_rstack_domain *domain);
 int mmix_rstack_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm);
 
+#ifdef CONFIG_MMIX_USER_TEST
+long mmix_rstack_domains_live(void);
+#endif
+
 #ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_rstack_domain_fail_after(int step);
 #endif

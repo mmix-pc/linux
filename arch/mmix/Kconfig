@@ -71,5 +71,17 @@ config MMIX_USER_TEST
 	help
 	  Expose private user-state and scheduler register-stack live counts
 	  through debugfs mmix/rstack_stats for userspace reclamation tests.
+	  The companion mmix/signal_stats file reports live register-stack
+	  domains and signal activations.
 	  This read-only test interface is not a userspace ABI. Leave disabled
 	  in ordinary kernel configurations.
+
+config MMIX_SIGNAL_TEST
+	bool "MMIX signal runtime interrupt injection"
+	depends on MMIX_USER_TEST
+	help
+	  Translate a user-mode interval-counter interrupt into SIGUSR2 for
+	  debugger-controlled instruction-boundary signal tests. The platform
+	  clock event device is independent of the interval counter. Tests must
+	  explicitly enable and request this interrupt through the debugger.
+	  Leave disabled in ordinary kernel configurations.

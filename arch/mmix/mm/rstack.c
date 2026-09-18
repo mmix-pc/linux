@@ -21,6 +21,15 @@ struct mmix_rstack_domain {
 	u64 id, parent;
 	unsigned long start;
 	unsigned int depth;
+	unsigned int claims;
+	bool managed;
+};
+
+struct mmix_rstack_owner {
+	/* No mm reference: a task or unpublished-child caller holds mm_users. */
+	struct mm_struct *mm;
+	unsigned int count;
+	u64 ids[RSTACK_MAX_DOMAINS];
 };
 
 struct mmix_rstack_registry {
@@ -49,6 +58,12 @@ static void account_domain(int delta)
 
 #ifdef CONFIG_MMIX_BOOT_TEST
 static atomic_t allocation_failure = ATOMIC_INIT(-1);
+static atomic_t release_failure = ATOMIC_INIT(0);
+
+void mmix_rstack_domain_fail_release(void)
+{
+	atomic_set(&release_failure, 1);
+}
 
 void mmix_rstack_domain_fail_after(int step)
 {
@@ -78,6 +93,16 @@ static struct mmix_rstack_domain *find_domain(struct mm_struct *mm, u64 id)
 	return NULL;
 }
 
+static bool owner_has(struct mmix_rstack_owner *owner, u64 id)
+{
+	unsigned int i;
+
+	for (i = 0; i < owner->count; i++)
+		if (owner->ids[i] == id)
+			return true;
+	return false;
+}
+
 int mmix_rstack_mm_init(struct mm_struct *mm)
 {
 	struct mmix_rstack_registry *registry;
@@ -102,7 +127,7 @@ void mmix_rstack_mm_destroy(struct mm_struct *mm)
 	if (!registry)
 		return;
 	list_for_each_entry_safe(domain, next, &registry->domains, list) {
-		WARN_ON_ONCE(refcount_read(&domain->refs) != 1);
+		WARN_ON_ONCE(refcount_read(&domain->refs) != 1 || domain->claims);
 		list_del(&domain->list);
 		account_domain(-1);
 		kfree(domain);
@@ -136,11 +161,12 @@ int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
 {
 	struct mmix_rstack_registry *registry = mm->context.rstacks;
 	struct mmix_rstack_domain *domain, *ancestor;
+	struct mmix_rstack_owner *owner = current->thread.rstack_owner;
 	unsigned long address, backing, populate;
 	vma_flags_t flags = legacy_to_vma_flags(VM_DONTEXPAND);
 	int error = -ENOMEM;
 
-	if (mm != current->mm)
+	if (mm != current->mm || (owner && owner->mm != mm))
 		return -EINVAL;
 	if (fail_allocation())
 		return -ENOMEM;
@@ -150,6 +176,11 @@ int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
 	mutex_lock(&registry->lock);
 	if (registry->count == RSTACK_MAX_DOMAINS || !registry->next_id)
 		goto out;
+	if (owner && (owner->count == RSTACK_MAX_DOMAINS ||
+		      (parent && !owner_has(owner, parent)))) {
+		error = -EPERM;
+		goto out;
+	}
 	if (parent) {
 		ancestor = find_domain(mm, parent);
 		error = -ESRCH;
@@ -191,6 +222,11 @@ int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
 	}
 	mark_domain(mm, domain, true);
 	refcount_set(&domain->refs, 1);
+	if (owner) {
+		owner->ids[owner->count++] = domain->id;
+		domain->claims = 1;
+		domain->managed = true;
+	}
 	list_add_tail(&domain->list, &registry->domains);
 	account_domain(1);
 	*id = domain->id;
@@ -207,35 +243,180 @@ out:
 	return error;
 }
 
+static bool has_children(struct mm_struct *mm, u64 id)
+{
+	struct mmix_rstack_domain *child;
+
+	list_for_each_entry(child, &mm->context.rstacks->domains, list)
+		if (child->parent == id)
+			return true;
+	return false;
+}
+
+/* Both registry and mmap write locks are held. Keep protection on failure. */
+static int unmap_domain(struct mm_struct *mm, struct mmix_rstack_domain *domain)
+{
+	int error;
+
+	/* Generic munmap accounting still uses current->mm in this baseline. */
+	if (mm != current->mm)
+		return -EINVAL;
+
+	#ifdef CONFIG_MMIX_BOOT_TEST
+	if (atomic_xchg(&release_failure, 0))
+		return -ENOMEM;
+#endif
+	mark_domain(mm, domain, false);
+	error = do_munmap(mm, domain->start, RSTACK_DOMAIN_SIZE, NULL);
+	if (error) {
+		mark_domain(mm, domain, true);
+		return error;
+	}
+	list_del(&domain->list);
+	account_domain(-1);
+	mm->context.rstacks->count--;
+	kfree(domain);
+	return 0;
+}
+
+/* Reclaim descendants first, including ancestors whose last owner has exited. */
+static int collect_domains(struct mm_struct *mm)
+{
+	struct mmix_rstack_domain *domain;
+	int error;
+
+	/* Unpublished foreign-mm rollback is completed by its ordinary mmput. */
+	if (mm != current->mm)
+		return 0;
+
+restart:
+	list_for_each_entry(domain, &mm->context.rstacks->domains, list) {
+		if (!domain->managed || domain->claims ||
+		    refcount_read(&domain->refs) != 1 || has_children(mm, domain->id))
+			continue;
+		error = unmap_domain(mm, domain);
+		if (error)
+			return error;
+		goto restart;
+	}
+	return 0;
+}
+
+struct mmix_rstack_owner *mmix_rstack_owner_alloc(struct mm_struct *mm, u64 chain)
+{
+	struct mmix_rstack_registry *registry = mm->context.rstacks;
+	struct mmix_rstack_owner *owner;
+	struct mmix_rstack_domain *domain;
+	unsigned int i;
+	int error = -ENOMEM;
+
+	if (!chain)
+		return ERR_PTR(-EINVAL);
+	if (fail_allocation())
+		return ERR_PTR(-ENOMEM);
+	owner = kzalloc_obj(*owner);
+	if (!owner)
+		return ERR_PTR(-ENOMEM);
+	owner->mm = mm;
+	mutex_lock(&registry->lock);
+	/* Prepare every acquisition before changing any existing ownership. */
+	while (chain) {
+		domain = find_domain(mm, chain);
+		if (!domain || owner->count > RSTACK_MAX_DEPTH) {
+			error = -EINVAL;
+			goto fail;
+		}
+		if (fail_allocation())
+			goto fail;
+		if (domain->claims == UINT_MAX) {
+			error = -EOVERFLOW;
+			goto fail;
+		}
+		owner->ids[owner->count++] = chain;
+		chain = domain->parent;
+	}
+	mmap_write_lock(mm);
+	for (i = 0; i < owner->count; i++) {
+		domain = find_domain(mm, owner->ids[i]);
+		domain->claims++;
+		domain->managed = true;
+	}
+	mmap_write_unlock(mm);
+	mutex_unlock(&registry->lock);
+	return owner;
+fail:
+	mutex_unlock(&registry->lock);
+	kfree(owner);
+	return ERR_PTR(error);
+}
+
+int mmix_rstack_owner_free(struct mmix_rstack_owner *owner)
+{
+	struct mm_struct *mm;
+	struct mmix_rstack_domain *domain;
+	unsigned int i;
+	int error;
+
+	if (!owner)
+		return 0;
+	mm = owner->mm;
+	mutex_lock(&mm->context.rstacks->lock);
+	mmap_write_lock(mm);
+	for (i = 0; i < owner->count; i++) {
+		domain = find_domain(mm, owner->ids[i]);
+		if (WARN_ON_ONCE(!domain || !domain->claims))
+			continue;
+		domain->claims--;
+	}
+	error = collect_domains(mm);
+	mmap_write_unlock(mm);
+	mutex_unlock(&mm->context.rstacks->lock);
+	kfree(owner);
+	return error;
+}
+
+void mmix_rstack_detach(struct task_struct *task, struct mm_struct *mm)
+{
+	struct mmix_rstack_owner *owner = task->thread.rstack_owner;
+
+	if (!owner || owner->mm != mm)
+		return;
+	task->thread.rstack_owner = NULL;
+	/* Failed unmaps retain protected, zero-claim metadata for later collection. */
+	mmix_rstack_owner_free(owner);
+}
+
 int mmix_rstack_domain_release(struct mm_struct *mm, u64 id)
 {
 	struct mmix_rstack_registry *registry = mm->context.rstacks;
-	struct mmix_rstack_domain *domain, *child;
+	struct mmix_rstack_owner *owner = current->thread.rstack_owner;
+	struct mmix_rstack_domain *domain;
+	unsigned int i;
 	int error = -ESRCH;
 
 	mutex_lock(&registry->lock);
 	domain = find_domain(mm, id);
 	if (!domain)
 		goto out;
-	error = -EBUSY;
-	if (refcount_read(&domain->refs) != 1)
-		goto out;
-	list_for_each_entry(child, &registry->domains, list)
-		if (child->parent == id)
+	if (domain->managed) {
+		error = -EPERM;
+		if (!owner || owner->mm != mm || !owner_has(owner, id))
 			goto out;
-	mmap_write_lock(mm);
-	/* Only this exact, unreferenced owner loses its internal protection. */
-	mark_domain(mm, domain, false);
-	error = do_munmap(mm, domain->start, RSTACK_DOMAIN_SIZE, NULL);
-	if (error) {
-		mark_domain(mm, domain, true);
+		mmap_write_lock(mm);
+		for (i = 0; owner->ids[i] != id; i++)
+			;
+		owner->ids[i] = owner->ids[--owner->count];
+		domain->claims--;
+		error = collect_domains(mm);
+		mmap_write_unlock(mm);
 	} else {
-		list_del(&domain->list);
-		account_domain(-1);
-		registry->count--;
-		kfree(domain);
+		error = -EBUSY;
+		if (refcount_read(&domain->refs) != 1 || has_children(mm, id))
+			goto out;
+		mmap_write_lock(mm);
+		error = unmap_domain(mm, domain);
+		mmap_write_unlock(mm);
 	}
-	mmap_write_unlock(mm);
 out:
 	mutex_unlock(&registry->lock);
 	return error;
@@ -252,6 +433,10 @@ struct mmix_rstack_domain *mmix_rstack_domain_begin(struct mm_struct *mm, u64 id
 	if (mm != current->mm)
 		return ERR_PTR(-EFAULT);
 	mutex_lock(&registry->lock);
+	if (current->thread.rstack_owner &&
+	    (current->thread.rstack_owner->mm != mm ||
+	     !owner_has(current->thread.rstack_owner, id)))
+		goto invalid;
 	domain = find_domain(mm, current->thread.rstack_chain);
 	while (domain && domain->id != id)
 		domain = find_domain(mm, domain->parent);
@@ -318,6 +503,8 @@ int mmix_rstack_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm)
 		if (!domain)
 			return -ENOMEM;
 		refcount_set(&domain->refs, 1);
+		domain->claims = 0;
+		domain->managed = false;
 		list_add_tail(&domain->list, &registry->domains);
 		account_domain(1);
 		registry->count++;

@@ -14,6 +14,7 @@
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
 #include <asm/unistd.h>
+#include <asm/rstack.h>
 #include "user_entry.h"
 #include "exec_test.h"
 
@@ -23,6 +24,8 @@
 #define FILE_MAP (10UL << 20)
 
 struct exec_test {
+	bool shared;
+	unsigned long old_backing;
 	int fd;
 	int entries;
 	int allocation_step;
@@ -162,10 +165,21 @@ static int exec_child(void *data)
 	if (!current->thread.user_state)
 		return 1;
 	state = mmix_user_rstack_state(current->thread.user_state);
+	if (t->shared) {
+		if (mmix_rstack_domain_create(current->mm, 0,
+					      &current->thread.rstack_chain, &t->old_backing))
+			return 1;
+		current->thread.rstack_owner =
+			mmix_rstack_owner_alloc(current->mm, current->thread.rstack_chain);
+		if (IS_ERR(current->thread.rstack_owner)) {
+			current->thread.rstack_owner = NULL;
+			return 1;
+		}
+	}
 	state->regs.pc = CODE;
 	state->regs.r_g = 230;
-	state->regs.r_o = STACK;
-	state->pending.start = STACK;
+	state->regs.r_o = t->shared ? t->old_backing : STACK;
+	state->pending.start = state->regs.r_o;
 	state->regs.regs[254] = STACK + PAGE_SIZE;
 	state->regs.regs[230] = 0xdeadbeef;
 	state->regs.regs[231] = t->fd;
@@ -198,6 +212,7 @@ static void exec_images(struct kunit *test)
 	KUNIT_ASSERT_NOT_NULL(test, image);
 	mm = mm_alloc();
 	KUNIT_ASSERT_NOT_NULL(test, mm);
+	mm->mmap_base = TASK_UNMAPPED_BASE;
 	kthread_use_mm(mm);
 	kernel_sigaction(SIGCHLD, SIG_DFL);
 	for (i = 0; i < 3; i++)
@@ -219,6 +234,8 @@ static void exec_images(struct kunit *test)
 		memcpy(image, mmix_exec_test_image, length);
 		phdr = (void *)(image + hdr->e_phoff);
 		memset(&t, 0, sizeof(t));
+		t.shared = variant == 1;
+		args.flags = t.shared ? CLONE_VM : 0;
 		t.allocation_step = -1;
 		t.entry = hdr->e_entry;
 		for (i = 0; i < hdr->e_phnum; i++)
@@ -310,6 +327,18 @@ static void exec_images(struct kunit *test)
 			KUNIT_EXPECT_EQ(test, error, child);
 			KUNIT_EXPECT_EQ_MSG(test, status, expected_status,
 					    "ELF variant %u", variant);
+		}
+		if (t.shared) {
+			struct vm_area_struct *vma;
+
+			KUNIT_EXPECT_PTR_EQ(test, t.old_mm, mm);
+			KUNIT_EXPECT_NE(test, t.old_backing, 0UL);
+			mmap_read_lock(mm);
+			vma = find_vma(mm, t.old_backing);
+			KUNIT_EXPECT_TRUE(test, !vma || vma->vm_start > t.old_backing);
+			mmap_read_unlock(mm);
+			KUNIT_EXPECT_EQ(test, mm->map_count, 3);
+			kunit_info(test, "MMIX_OWNER exec=old-mm-retired trial=%u\n", trial);
 		}
 		if (variant < 2) {
 			KUNIT_EXPECT_EQ(test, t.entries, 2);

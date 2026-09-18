@@ -59,6 +59,13 @@ unlock:
 	error = mmix_rstack_domain_create(current->mm, 0, &chain, &mapped);
 	if (error)
 		goto free;
+	current->thread.rstack_owner = mmix_rstack_owner_alloc(current->mm, chain);
+	if (IS_ERR(current->thread.rstack_owner)) {
+		error = PTR_ERR(current->thread.rstack_owner);
+		current->thread.rstack_owner = NULL;
+		mmix_rstack_domain_release(current->mm, chain);
+		goto free;
+	}
 	current->thread.rstack_chain = chain;
 	state = mmix_user_rstack_state(stack);
 	state->regs.r_o = mapped;

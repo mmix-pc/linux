@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <asm/current.h>
+#include <asm/rstack.h>
 #include <asm/irqflags.h>
 #include "process.h"
 #include "user_entry.h"
@@ -96,6 +97,12 @@ void arch_release_task_struct(struct task_struct *task)
 	mmix_user_rstack_free(&task->thread.user_state);
 	if (task->thread.rstack)
 		schedule_work(&task->thread.rstack->work);
+}
+
+void exit_thread(struct task_struct *task)
+{
+	/* Published tasks detach at mm_release; failed forks still hold their mm. */
+	mmix_rstack_detach(task, task->mm);
 }
 
 void release_thread(struct task_struct *task)
@@ -205,6 +212,16 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		state = mmix_user_rstack_state(task->thread.user_state);
 		state->regs.regs[231] = 0;
 		task->thread.rstack_chain = current->thread.rstack_chain;
+		if (task->thread.rstack_chain) {
+			task->thread.rstack_owner =
+				mmix_rstack_owner_alloc(task->mm, task->thread.rstack_chain);
+			if (IS_ERR(task->thread.rstack_owner)) {
+				err = PTR_ERR(task->thread.rstack_owner);
+				task->thread.rstack_owner = NULL;
+				mmix_user_rstack_free(&task->thread.user_state);
+				goto fail;
+			}
+		}
 		err = mmix_signal_dup(task);
 		if (err) {
 			mmix_user_rstack_free(&task->thread.user_state);
@@ -214,6 +231,7 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 	task->thread.rstack = stack;
 	return 0;
 fail:
+	mmix_rstack_detach(task, task->mm);
 	free_rstack(stack);
 	memset(&task->thread, 0, sizeof(task->thread));
 	return err;

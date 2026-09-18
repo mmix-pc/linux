@@ -22,6 +22,9 @@
 #define STACK_SIZE SZ_1M
 
 struct signal_test {
+	struct mmix_rstack_owner *borrower;
+	struct mm_struct *borrow_mm;
+	unsigned long borrow_address;
 	unsigned long mode;
 	unsigned int kills, returns, injections, reads;
 	unsigned long denied;
@@ -111,6 +114,21 @@ static int signal_event(struct mmix_user_entry *entry, void *data)
 		send_sig(SIGUSR1, current, 0);
 		local_irq_disable();
 	}
+	if (t->mode == 0 && entry->event == MMIX_USER_SYSCALL &&
+	    nr == __NR_rt_sigreturn && !t->borrower) {
+		local_irq_enable();
+		t->borrower =
+			mmix_rstack_owner_alloc(current->mm, current->thread.rstack_chain);
+		KUNIT_EXPECT_FALSE(t->test, IS_ERR(t->borrower));
+		if (IS_ERR(t->borrower)) {
+			t->borrower = NULL;
+		} else {
+			t->borrow_mm = current->mm;
+			mmget(t->borrow_mm);
+			t->borrow_address = mmix_user_rstack_state(entry->stack)->regs.r_o;
+		}
+		local_irq_disable();
+	}
 	if ((mode == 22 || mode == 31) && t->denied &&
 	    entry->event == MMIX_USER_FAULT &&
 	    entry->regs.pc == CODE + mmix_signal_pop - mmix_signal_test_start) {
@@ -185,6 +203,12 @@ static int signal_child(void *data)
 	    mmix_rstack_domain_create(current->mm, 0,
 				      &current->thread.rstack_chain, &base))
 		return 99;
+	current->thread.rstack_owner =
+		mmix_rstack_owner_alloc(current->mm, current->thread.rstack_chain);
+	if (IS_ERR(current->thread.rstack_owner)) {
+		current->thread.rstack_owner = NULL;
+		return 99;
+	}
 	for (i = 0; i < ARRAY_SIZE(values); i++)
 		values[i] = 1000 + i;
 	if (copy_to_user((void __user *)(DATA + 4096), values, sizeof(values)))
@@ -302,6 +326,31 @@ static void delivery_return_case(struct kunit *test)
 		KUNIT_EXPECT_GT(test, pid, 0);
 		if (pid > 0)
 			KUNIT_EXPECT_EQ(test, kernel_wait(pid, &status), pid);
+		if (mode == 0)
+			KUNIT_EXPECT_NOT_NULL(test, t->borrower);
+		if (t->borrower) {
+			struct vm_area_struct *vma;
+			bool owned;
+
+			mmap_read_lock(t->borrow_mm);
+			vma = find_vma(t->borrow_mm, t->borrow_address);
+			owned = vma && vma->vm_start <= t->borrow_address &&
+				vma_is_arch_owned(vma);
+			KUNIT_EXPECT_TRUE(test, owned);
+			mmap_read_unlock(t->borrow_mm);
+			/* The held mm outlives its child; adopt it for munmap accounting. */
+			kthread_unuse_mm(mm);
+			kthread_use_mm(t->borrow_mm);
+			KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(t->borrower), 0);
+			mmap_read_lock(t->borrow_mm);
+			vma = find_vma(t->borrow_mm, t->borrow_address);
+			KUNIT_EXPECT_TRUE(test, !vma || vma->vm_start > t->borrow_address);
+			mmap_read_unlock(t->borrow_mm);
+			kthread_unuse_mm(t->borrow_mm);
+			kthread_use_mm(mm);
+			mmput(t->borrow_mm);
+			kunit_info(test, "MMIX_OWNER signal=retained-and-released\n");
+		}
 		mmix_rstack_domain_fail_after(-1);
 		for (retry = 0; retry < 100 && mmix_signal_live() != baseline;
 		     retry++)

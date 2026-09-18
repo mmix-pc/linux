@@ -213,8 +213,215 @@ out:
 	mmput(mm);
 }
 
+struct shared_domains {
+	u64 chain;
+	unsigned long base;
+};
+
+static int shared_owner_exit(void *data)
+{
+	struct shared_domains *shared = data;
+	u64 id;
+	unsigned long base;
+
+	current->thread.rstack_chain = shared->chain;
+	current->thread.rstack_owner = mmix_rstack_owner_alloc(current->mm, shared->chain);
+	if (IS_ERR(current->thread.rstack_owner)) {
+		current->thread.rstack_owner = NULL;
+		return 1;
+	}
+	if (mmix_rstack_domain_create(current->mm, shared->chain, &id, &base))
+		return 2;
+	if (put_user(0xfeedUL, (unsigned long __user *)shared->base))
+		return 3;
+	/* A nonzero status also verifies kernel_wait wrote the output. */
+	return 37;
+}
+
+static void shared_owners(struct kunit *test)
+{
+	struct mm_struct *mm = mm_alloc();
+	struct mmix_rstack_owner *parent, *child, *grandchild, *failed;
+	struct mm_struct *foreign;
+	struct shared_domains shared;
+	struct kernel_clone_args args = {
+		.flags = CLONE_VM,
+		.fn = shared_owner_exit,
+		.fn_arg = &shared,
+		.exit_signal = SIGCHLD,
+	};
+	__sighandler_t handler = current->sighand->action[SIGCHLD - 1].sa.sa_handler;
+	u64 root, signal, nested, old_chain = current->thread.rstack_chain;
+	unsigned long base, address, value;
+	unsigned int i, cycle;
+	int error, maps, status;
+	pid_t pid;
+
+	KUNIT_ASSERT_NOT_NULL(test, mm);
+	KUNIT_ASSERT_NULL(test, current->thread.rstack_owner);
+	mm->mmap_base = TASK_UNMAPPED_BASE;
+	kthread_use_mm(mm);
+	maps = mm->map_count;
+	for (cycle = 0; cycle < 100; cycle++) {
+		parent = NULL;
+		child = NULL;
+		grandchild = NULL;
+		error = mmix_rstack_domain_create(mm, 0, &root, &base);
+		KUNIT_EXPECT_EQ(test, error, 0);
+		if (error)
+			break;
+		parent = mmix_rstack_owner_alloc(mm, root);
+		if (IS_ERR(parent)) {
+			KUNIT_FAIL(test, "parent claim allocation");
+			parent = NULL;
+			break;
+		}
+		current->thread.rstack_owner = parent;
+		current->thread.rstack_chain = root;
+		KUNIT_EXPECT_EQ(test, put_user(0x1234UL, (unsigned long __user *)base), 0);
+		error = mmix_rstack_domain_create(mm, root, &signal, &address);
+		KUNIT_EXPECT_EQ(test, error, 0);
+		if (error)
+			goto cleanup;
+		/* Allocation and each ancestor acquisition fail without partial claims. */
+		for (i = 0; i < 3; i++) {
+			mmix_rstack_domain_fail_after(i);
+			failed = mmix_rstack_owner_alloc(mm, signal);
+			mmix_rstack_domain_fail_after(-1);
+			KUNIT_EXPECT_TRUE(test, IS_ERR(failed));
+			if (IS_ERR(failed))
+				KUNIT_EXPECT_EQ(test, PTR_ERR(failed), -ENOMEM);
+			else
+				mmix_rstack_owner_free(failed);
+		}
+		child = mmix_rstack_owner_alloc(mm, signal);
+		if (IS_ERR(child)) {
+			child = NULL;
+			KUNIT_FAIL(test, "child claim allocation");
+			goto cleanup;
+		}
+		/* A normal/ancestor return drops only this task's inherited claim. */
+		KUNIT_EXPECT_EQ(test, mmix_rstack_domain_release(mm, signal), 0);
+		KUNIT_EXPECT_EQ(test, mmix_rstack_domain_release(mm, signal), -EPERM);
+		KUNIT_EXPECT_EQ(test, sys_mprotect(base, PAGE_SIZE, PROT_NONE), -EPERM);
+		current->thread.rstack_owner = child;
+		current->thread.rstack_chain = signal;
+		error = mmix_rstack_domain_create(mm, signal, &nested, &address);
+		KUNIT_EXPECT_EQ(test, error, 0);
+		if (error)
+			goto cleanup;
+		grandchild = mmix_rstack_owner_alloc(mm, nested);
+		if (IS_ERR(grandchild)) {
+			grandchild = NULL;
+			KUNIT_FAIL(test, "descendant claim allocation");
+			goto cleanup;
+		}
+		/* Parent and intermediate child disappear before their descendant. */
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(parent), 0);
+		parent = NULL;
+		current->thread.rstack_owner = grandchild;
+		current->thread.rstack_chain = nested;
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(child), 0);
+		child = NULL;
+		KUNIT_EXPECT_EQ(test, get_user(value, (unsigned long __user *)base), 0);
+		KUNIT_EXPECT_EQ(test, value, 0x1234UL);
+		KUNIT_EXPECT_EQ(test, vm_munmap(base, PAGE_SIZE), -EPERM);
+cleanup:
+		current->thread.rstack_owner = NULL;
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(grandchild), 0);
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(child), 0);
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(parent), 0);
+		KUNIT_EXPECT_EQ(test, mm->map_count, maps);
+	}
+	KUNIT_EXPECT_EQ(test, cycle, 100U);
+	/* Failed-fork rollback must never charge munmap to the caller's mm. */
+	foreign = mm_alloc();
+	KUNIT_EXPECT_NOT_NULL(test, foreign);
+	if (foreign) {
+		foreign->mmap_base = TASK_UNMAPPED_BASE;
+		kthread_unuse_mm(mm);
+		kthread_use_mm(foreign);
+		error = mmix_rstack_domain_create(foreign, 0, &root, &base);
+		KUNIT_EXPECT_EQ(test, error, 0);
+		parent = error ? ERR_PTR(error) : mmix_rstack_owner_alloc(foreign, root);
+		kthread_unuse_mm(foreign);
+		kthread_use_mm(mm);
+		if (!IS_ERR(parent)) {
+			KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(parent), 0);
+			KUNIT_EXPECT_EQ(test, foreign->map_count, 3);
+		} else {
+			KUNIT_FAIL(test, "foreign-mm ownership allocation");
+		}
+		KUNIT_EXPECT_EQ(test, mm->map_count, maps);
+		mmput(foreign);
+	}
+	/* Failed retirement retains the protected reservation until collection. */
+	error = mmix_rstack_domain_create(mm, 0, &root, &base);
+	KUNIT_EXPECT_EQ(test, error, 0);
+	if (!error) {
+		parent = mmix_rstack_owner_alloc(mm, root);
+		if (!IS_ERR(parent)) {
+			mmix_rstack_domain_fail_release();
+			KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(parent), -ENOMEM);
+			KUNIT_EXPECT_EQ(test, vm_munmap(base, PAGE_SIZE), -EPERM);
+			error = mmix_rstack_domain_create(mm, 0, &signal, &address);
+			KUNIT_EXPECT_EQ(test, error, 0);
+			if (!error) {
+				parent = mmix_rstack_owner_alloc(mm, signal);
+				if (!IS_ERR(parent))
+					KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(parent), 0);
+				else
+					KUNIT_FAIL(test, "retry claim allocation");
+			}
+		} else {
+			KUNIT_FAIL(test, "retirement claim allocation");
+		}
+	}
+	KUNIT_EXPECT_EQ(test, mm->map_count, maps);
+	/* Exercise the real old-mm exit hook while the parent's mm remains live. */
+	error = mmix_rstack_domain_create(mm, 0, &root, &base);
+	KUNIT_EXPECT_EQ(test, error, 0);
+	if (!error) {
+		parent = mmix_rstack_owner_alloc(mm, root);
+		if (!IS_ERR(parent)) {
+			current->thread.rstack_owner = parent;
+			current->thread.rstack_chain = root;
+			shared.chain = root;
+			shared.base = base;
+			kernel_sigaction(SIGCHLD, SIG_DFL);
+			for (i = 0; i < 2; i++) {
+				args.flags = i ? 0 : CLONE_VM;
+				error = put_user(0x1234UL, (unsigned long __user *)base);
+				KUNIT_EXPECT_EQ(test, error, 0);
+				pid = kernel_clone(&args);
+				KUNIT_EXPECT_GT(test, pid, 0);
+				if (pid > 0) {
+					status = -1;
+					KUNIT_EXPECT_EQ(test, kernel_wait(pid, &status), pid);
+					KUNIT_EXPECT_EQ(test, status, 37);
+					error = get_user(value, (unsigned long __user *)base);
+					KUNIT_EXPECT_EQ(test, error, 0);
+					KUNIT_EXPECT_EQ(test, value, i ? 0x1234UL : 0xfeedUL);
+				}
+			}
+			kernel_sigaction(SIGCHLD, handler);
+			KUNIT_EXPECT_EQ(test, mm->map_count, maps + 3);
+			mmix_rstack_detach(current, mm);
+			mmix_rstack_detach(current, mm);
+		} else {
+			KUNIT_FAIL(test, "exit-hook parent allocation");
+		}
+	}
+	KUNIT_EXPECT_EQ(test, mm->map_count, maps);
+	current->thread.rstack_chain = old_chain;
+	kthread_unuse_mm(mm);
+	mmput(mm);
+	kunit_info(test, "MMIX_OWNER claims=ok rollback=ok retirement=ok exit=ok cycles=100\n");
+}
+
 static struct kunit_case rstack_domain_cases[] = {
 	KUNIT_CASE(owned_domains),
+	KUNIT_CASE(shared_owners),
 	{}
 };
 

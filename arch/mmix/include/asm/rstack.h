@@ -6,6 +6,13 @@
 
 struct mm_struct;
 struct mmix_rstack_domain;
+struct mmix_rstack_owner;
+struct task_struct;
+
+/* Private continuation claims; the caller keeps mm alive until detach. */
+struct mmix_rstack_owner *mmix_rstack_owner_alloc(struct mm_struct *mm, u64 chain);
+int mmix_rstack_owner_free(struct mmix_rstack_owner *owner);
+void mmix_rstack_detach(struct task_struct *task, struct mm_struct *mm);
 
 int mmix_rstack_mm_init(struct mm_struct *mm);
 void mmix_rstack_mm_destroy(struct mm_struct *mm);
@@ -24,6 +31,7 @@ long mmix_rstack_domains_live(void);
 
 #ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_rstack_domain_fail_after(int step);
+void mmix_rstack_domain_fail_release(void);
 #endif
 
 #endif

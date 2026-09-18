@@ -13,6 +13,7 @@
 #include "process.h"
 #include "user_entry.h"
 #include "signal.h"
+#include "vfork.h"
 
 struct mmix_rstack {
 	struct work_struct work;
@@ -103,6 +104,7 @@ void exit_thread(struct task_struct *task)
 {
 	/* Published tasks detach at mm_release; failed forks still hold their mm. */
 	mmix_rstack_detach(task, task->mm);
+	mmix_vfork_detach(task, task->mm);
 }
 
 void release_thread(struct task_struct *task)
@@ -153,9 +155,11 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 	unsigned int i;
 	int err = -ENOMEM;
 
-	/* Only independent-mm, original-stack native children are qualified. */
+	/* Native shared-mm children require a prepared vfork checkpoint. */
 	if (!args->fn) {
-		if (args->flags || args->stack || args->stack_size ||
+		if ((args->flags && args->flags != (CLONE_VM | CLONE_VFORK)) ||
+		    (args->flags && !current->thread.vfork_prepare) ||
+		    args->stack || args->stack_size ||
 		    args->exit_signal != SIGCHLD || !current->thread.user_state)
 			return -EOPNOTSUPP;
 	}
@@ -226,6 +230,14 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		if (err) {
 			mmix_user_rstack_free(&task->thread.user_state);
 			goto fail;
+		}
+		if (args->flags) {
+			err = mmix_vfork_attach(task);
+			if (err) {
+				mmix_signal_free(task);
+				mmix_user_rstack_free(&task->thread.user_state);
+				goto fail;
+			}
 		}
 	}
 	task->thread.rstack = stack;

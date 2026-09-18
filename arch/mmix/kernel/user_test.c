@@ -7,6 +7,7 @@
 #include "signal.h"
 #include "process.h"
 #include "user_rstack.h"
+#include "vfork.h"
 
 static int rstack_stats_show(struct seq_file *seq, void *unused)
 {
@@ -25,6 +26,13 @@ static int signal_stats_show(struct seq_file *seq, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(signal_stats);
 
+static int vfork_stats_show(struct seq_file *seq, void *unused)
+{
+	seq_printf(seq, "sessions_live %ld\n", mmix_vfork_live());
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(vfork_stats);
+
 static int __init user_test_init(void)
 {
 	struct dentry *dir, *file;
@@ -38,6 +46,11 @@ static int __init user_test_init(void)
 		return PTR_ERR(file);
 	}
 	file = debugfs_create_file("signal_stats", 0400, dir, NULL, &signal_stats_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("vfork_stats", 0400, dir, NULL, &vfork_stats_fops);
 	if (IS_ERR(file)) {
 		debugfs_remove(dir);
 		return PTR_ERR(file);

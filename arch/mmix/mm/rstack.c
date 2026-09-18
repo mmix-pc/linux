@@ -38,6 +38,7 @@ struct mmix_rstack_registry {
 	struct list_head domains;
 	u64 next_id;
 	unsigned int count;
+	unsigned int sessions;
 };
 
 #ifdef CONFIG_MMIX_USER_TEST
@@ -119,6 +120,47 @@ int mmix_rstack_mm_init(struct mm_struct *mm)
 	return 0;
 }
 
+int mmix_rstack_session_get(struct mm_struct *mm)
+{
+	struct mmix_rstack_registry *registry = mm->context.rstacks;
+	int error = 0;
+
+	mutex_lock(&registry->lock);
+	if (registry->sessions == 32)
+		error = -EAGAIN;
+	else
+		registry->sessions++;
+	mutex_unlock(&registry->lock);
+	return error;
+}
+
+void mmix_rstack_session_put(struct mm_struct *mm)
+{
+	mutex_lock(&mm->context.rstacks->lock);
+	mm->context.rstacks->sessions--;
+	mutex_unlock(&mm->context.rstacks->lock);
+}
+
+/* Validate topology and bounds before any faultable prefix copy. */
+int mmix_rstack_prefix(struct mm_struct *mm, u64 id, u64 parent,
+		       unsigned long top, unsigned long *base)
+{
+	struct mmix_rstack_domain *domain;
+	struct mmix_rstack_owner *owner = current->thread.rstack_owner;
+	int error = -EINVAL;
+
+	mutex_lock(&mm->context.rstacks->lock);
+	domain = find_domain(mm, id);
+	if (domain && domain->parent == parent && owner && owner->mm == mm &&
+	    owner_has(owner, id)) {
+		*base = domain->start + PAGE_SIZE;
+		if (top >= *base && top - *base <= RSTACK_BACKING_SIZE)
+			error = 0;
+	}
+	mutex_unlock(&mm->context.rstacks->lock);
+	return error;
+}
+
 void mmix_rstack_mm_destroy(struct mm_struct *mm)
 {
 	struct mmix_rstack_registry *registry = mm->context.rstacks;
@@ -126,6 +168,7 @@ void mmix_rstack_mm_destroy(struct mm_struct *mm)
 
 	if (!registry)
 		return;
+	WARN_ON_ONCE(registry->sessions);
 	list_for_each_entry_safe(domain, next, &registry->domains, list) {
 		WARN_ON_ONCE(refcount_read(&domain->refs) != 1 || domain->claims);
 		list_del(&domain->list);

@@ -3,7 +3,7 @@ extra-y += vmlinux.lds
 obj-y += irqflags.o
 obj-y += head.o early.o setup.o
 obj-y += entry.o traps.o irq.o
-obj-y += process.o switch.o
+obj-y += process.o switch.o vfork.o
 obj-y += time.o
 obj-y += delay.o uaccess.o ptrace.o cpuinfo.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += boot_test.o boot_test_context.o
@@ -35,3 +35,4 @@ endif
 obj-$(CONFIG_MMIX_USER_TEST) += user_test.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += signal_test.o signal_test_context.o
 obj-$(CONFIG_MMIX_BOOT_TEST) += rstack_jump_test.o rstack_jump_test_context.o
+obj-$(CONFIG_MMIX_BOOT_TEST) += vfork_test.o

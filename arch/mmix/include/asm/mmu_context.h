@@ -33,6 +33,7 @@ static inline bool arch_vma_access_permitted(struct vm_area_struct *vma,
 static inline void deactivate_mm(struct task_struct *task, struct mm_struct *mm)
 {
 	mmix_rstack_detach(task, mm);
+	mmix_vfork_detach(task, mm);
 }
 
 #define deactivate_mm deactivate_mm

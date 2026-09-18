@@ -73,7 +73,8 @@ config MMIX_USER_TEST
 	  Expose private user-state and scheduler register-stack live counts
 	  through debugfs mmix/rstack_stats for userspace reclamation tests.
 	  The companion mmix/signal_stats file reports live register-stack
-	  domains and signal activations.
+	  domains and signal activations; mmix/vfork_stats reports outstanding
+	  shared-mm continuation checkpoints.
 	  This read-only test interface is not a userspace ABI. Leave disabled
 	  in ordinary kernel configurations.
 

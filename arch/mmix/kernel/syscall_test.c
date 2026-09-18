@@ -237,7 +237,7 @@ static void numbers_and_errors(struct kunit *test)
 			-EOPNOTSUPP);
 	KUNIT_EXPECT_EQ(test,
 			call_user(t, __NR_clone, SIGCHLD | CLONE_VM | CLONE_VFORK,
-				  0, 0, 0, 0, 0), -EOPNOTSUPP);
+				  DATA, 0, 0, 0, 0), -EOPNOTSUPP);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_clone, SIGCHLD, DATA, 0, 0, 0, 0),
 			-EOPNOTSUPP);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_clone, (1UL << 32) | SIGCHLD, 0, 0, 0, 0, 0),

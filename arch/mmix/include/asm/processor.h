@@ -21,6 +21,7 @@ struct mmix_user_rstack_state;
 struct mmix_signal_activation;
 struct mmix_user_entry;
 struct mmix_rstack_owner;
+struct mmix_vfork;
 
 struct thread_struct {
 	unsigned long save;
@@ -35,6 +36,8 @@ struct thread_struct {
 	struct mmix_user_rstack_state *user_state;
 	u64 rstack_chain;
 	struct mmix_rstack_owner *rstack_owner;
+	struct mmix_vfork *vfork_child;
+	struct mmix_vfork *vfork_prepare;
 	struct mmix_signal_activation *signals;
 	struct mmix_user_entry *user_entry;
 };

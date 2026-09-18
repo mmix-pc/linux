@@ -14,6 +14,12 @@ struct mmix_rstack_owner *mmix_rstack_owner_alloc(struct mm_struct *mm, u64 chai
 int mmix_rstack_owner_free(struct mmix_rstack_owner *owner);
 void mmix_rstack_detach(struct task_struct *task, struct mm_struct *mm);
 
+int mmix_rstack_session_get(struct mm_struct *mm);
+void mmix_rstack_session_put(struct mm_struct *mm);
+int mmix_rstack_prefix(struct mm_struct *mm, u64 id, u64 parent,
+		       unsigned long top, unsigned long *base);
+void mmix_vfork_detach(struct task_struct *task, struct mm_struct *mm);
+
 int mmix_rstack_mm_init(struct mm_struct *mm);
 void mmix_rstack_mm_destroy(struct mm_struct *mm);
 int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,

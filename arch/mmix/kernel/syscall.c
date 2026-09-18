@@ -12,6 +12,7 @@
 #include <uapi/asm/rstack.h>
 #include "user_entry.h"
 #include "signal.h"
+#include "vfork.h"
 
 static struct mmix_rstack_domain *rstack_syscall_begin(struct mmix_user_entry *entry)
 {
@@ -75,10 +76,14 @@ SYSCALL_DEFINE5(clone, unsigned long, flags, unsigned long, stack,
 {
 	struct kernel_clone_args args = { .exit_signal = SIGCHLD };
 
-	/* Reject sharing, new stacks and all unqualified flags before publication. */
-	if (flags != SIGCHLD || stack)
+	if (stack)
 		return -EOPNOTSUPP;
-	return kernel_clone(&args);
+	if (flags == SIGCHLD)
+		return kernel_clone(&args);
+	if (flags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
+		return -EOPNOTSUPP;
+	args.flags = CLONE_VM | CLONE_VFORK;
+	return mmix_vfork_clone(&args);
 }
 
 typedef long (*syscall_fn)(unsigned long, unsigned long, unsigned long, unsigned long,
@@ -138,6 +143,8 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		result = function(args[0], args[1], args[2], args[3], args[4], args[5]);
 	}
 	local_irq_disable();
+	if (entry->fatal_signal)
+		return -EFAULT;
 	if (current->thread.exec_pending) {
 		current->thread.exec_pending = false;
 		entry->stack = current->thread.user_state;

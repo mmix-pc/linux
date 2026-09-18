@@ -56,6 +56,31 @@ static struct mmix_signal_activation *alloc_activation(void)
 	return activation;
 }
 
+/* Visit the active chain and each immutable, suspended ancestor exactly once. */
+int mmix_signal_walk(int (*visit)(void *, u64, u64, const struct mmix_user_state *),
+		     void *data)
+{
+	struct mmix_signal_activation *activation = current->thread.signals;
+	const struct mmix_user_state *state;
+	u64 chain = current->thread.rstack_chain;
+	unsigned int depth = 0;
+	int error;
+
+	if (!current->thread.user_state || !chain)
+		return -EINVAL;
+	state = mmix_user_rstack_state(current->thread.user_state);
+	for (;;) {
+		if (++depth > 33 || (activation && activation->handler_chain != chain))
+			return -EINVAL;
+		error = visit(data, chain, activation ? activation->chain : 0, state);
+		if (error || !activation)
+			return error;
+		chain = activation->chain;
+		state = &activation->state;
+		activation = activation->parent;
+	}
+}
+
 void mmix_signal_free(struct task_struct *task)
 {
 	struct mmix_signal_activation *activation;

@@ -20,6 +20,15 @@ mmix_user_test_deep:
 	GET r1,rJ
 	XOR r29,r0,0x54
 	SUBU r0,r0,1
+	/* Optional IRQ window: rO crosses page two before rS reaches it. */
+	BZ r235,.Lno_writeback_wait
+	CMPU r2,r0,31
+	BNZ r2,.Lno_writeback_wait
+	SETML r2,0x100
+.Lwriteback_wait:
+	SUBU r2,r2,1
+	BNZB r2,.Lwriteback_wait
+.Lno_writeback_wait:
 	BZ r0,.Lspin
 	OR r32,r0,0
 	PUSHJB r31,.Lrecursive

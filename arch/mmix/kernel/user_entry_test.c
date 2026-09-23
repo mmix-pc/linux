@@ -20,6 +20,7 @@ enum user_test_mode {
 	TEST_DEEP,
 	TEST_KERNEL_ADDRESS,
 	TEST_SPILL_FAULT,
+	TEST_SPILL_WRITEBACK,
 	TEST_SAVE_FAULT,
 	TEST_USER_TP,
 	TEST_PRIVILEGED,
@@ -37,7 +38,7 @@ struct user_test {
 	unsigned int stops;
 	enum user_test_mode mode;
 	unsigned long writes, interrupts;
-	unsigned int faults;
+	unsigned int faults, write_faults;
 	struct completion ready;
 	bool running, preempted;
 };
@@ -50,9 +51,24 @@ static int write_backing(void *data, unsigned long address, const void *source, 
 
 	if (address < STACK || address > STACK + STACK_SIZE || size > STACK + STACK_SIZE - address)
 		return -EFAULT;
-	for (page = address & PAGE_MASK; page < address + size; page += PAGE_SIZE)
-		if (!pte_write(pte[page >> PAGE_SHIFT]))
+	for (page = address & PAGE_MASK; page < address + size; page += PAGE_SIZE) {
+		if (pte_write(pte[page >> PAGE_SHIFT]))
+			continue;
+		if ((t->mode != TEST_SPILL_FAULT && t->mode != TEST_SPILL_WRITEBACK) ||
+		    page != STACK + PAGE_SIZE)
 			return -EFAULT;
+		/* An IRQ can materialize pending values before the hardware spills. */
+		KUNIT_EXPECT_EQ(t->test, t->faults, 0U);
+		KUNIT_EXPECT_PTR_EQ(t->test,
+				    memchr_inv(page_address(t->stack) + PAGE_SIZE, 0, PAGE_SIZE),
+				    NULL);
+		t->faults++;
+		t->write_faults++;
+		/* Only these recoverable cases authorize repairing this fixture page. */
+		set_pte(&pte[page >> PAGE_SHIFT],
+			pfn_pte(page_to_pfn(t->stack) + 1, PAGE_KERNEL));
+		flush_tlb_all();
+	}
 	memcpy(page_address(t->stack) + address - STACK, source, size);
 	t->writes += size;
 	return 0;
@@ -91,7 +107,8 @@ static int user_stop(struct mmix_user_entry *entry, void *data)
 		flush_tlb_all();
 		return 0;
 	}
-	if ((t->mode == TEST_SPILL_FAULT || t->mode == TEST_SAVE_FAULT) &&
+	if ((t->mode == TEST_SPILL_FAULT || t->mode == TEST_SPILL_WRITEBACK ||
+	     t->mode == TEST_SAVE_FAULT) &&
 	    entry->event == MMIX_USER_FAULT) {
 		pte_t *pte = page_address(t->pte);
 
@@ -131,7 +148,8 @@ static int user_stop(struct mmix_user_entry *entry, void *data)
 	KUNIT_EXPECT_EQ(t->test, s->regs.r_m, 0x1234UL);
 	KUNIT_EXPECT_EQ(t->test, s->regs.r_p, 0x5aUL);
 	KUNIT_EXPECT_EQ(t->test, s->regs.r_r, 0x45UL);
-	if (t->mode == TEST_DEEP || t->mode == TEST_SPILL_FAULT) {
+	if (t->mode == TEST_DEEP || t->mode == TEST_SPILL_FAULT ||
+	    t->mode == TEST_SPILL_WRITEBACK) {
 		KUNIT_EXPECT_EQ(t->test, s->regs.r_o, STACK);
 		KUNIT_EXPECT_GT(t->test, t->interrupts, 0UL);
 		return 1;
@@ -218,11 +236,13 @@ static int run_user(struct user_test *t, const unsigned char *code)
 	s->regs.r_p = 0x5a;
 	s->regs.r_r = 0x45;
 	s->regs.regs[230] = 0x2345;
+	s->regs.regs[235] = t->mode == TEST_SPILL_WRITEBACK;
 	s->regs.regs[254] = MMIX_TASK_SIZE;
 	s->pending.start = s->regs.r_o;
 	t->stops = 0;
 	t->interrupts = 0;
 	t->faults = 0;
+	t->write_faults = 0;
 	kthread_use_mm(t->mm);
 	WRITE_ONCE(t->running, true);
 	result = mmix_user_enter(t->state, &ops, t);
@@ -253,6 +273,7 @@ static void user_entry_roundtrips(struct kunit *test)
 	struct user_test t = { .test = test };
 	struct task_struct *worker = NULL;
 	pte_t *pte;
+	unsigned int spill_writeback;
 
 	if (!prepare_test(&t)) {
 		KUNIT_FAIL(test, "user fixture allocation");
@@ -292,7 +313,20 @@ static void user_entry_roundtrips(struct kunit *test)
 	set_pte(&pte[(STACK >> PAGE_SHIFT) + 1], pfn_pte(page_to_pfn(t.stack) + 1, PAGE_KERNEL_RO));
 	KUNIT_EXPECT_EQ(test, run_user(&t, mmix_user_test_deep), 0);
 	KUNIT_EXPECT_EQ(test, t.faults, 1U);
-	KUNIT_EXPECT_EQ(test, t.stops, 2U);
+	KUNIT_EXPECT_LE(test, t.write_faults, 1U);
+	KUNIT_EXPECT_EQ(test, t.stops, 2U - t.write_faults);
+	spill_writeback = t.write_faults;
+
+	/* Hold the live window across the denied page until an IRQ writes it back. */
+	t.mode = TEST_SPILL_WRITEBACK;
+	set_pte(&pte[(STACK >> PAGE_SHIFT) + 1], pfn_pte(page_to_pfn(t.stack) + 1, PAGE_KERNEL_RO));
+	KUNIT_EXPECT_EQ(test, run_user(&t, mmix_user_test_deep), 0);
+	KUNIT_EXPECT_EQ(test, t.faults, 1U);
+	KUNIT_EXPECT_EQ(test, t.write_faults, 1U);
+	KUNIT_EXPECT_EQ(test, t.stops, 1U);
+	kunit_info(test, "MMIX_USER spill_hw=%u spill_writeback=%u forced_writeback=%u\n",
+		   1U - spill_writeback, spill_writeback, t.write_faults);
+
 	t.mode = TEST_SAVE_FAULT;
 	set_pte(&pte[(STACK >> PAGE_SHIFT) + 1], pfn_pte(page_to_pfn(t.stack) + 1, PAGE_KERNEL_RO));
 	KUNIT_EXPECT_EQ(test, run_user(&t, mmix_user_test_save), 0);
@@ -321,7 +355,7 @@ static void user_entry_roundtrips(struct kunit *test)
 	/* An invalid user context must leave the kernel able to admit a control. */
 	KUNIT_EXPECT_EQ(test, run_user(&t, mmix_user_test_start), 0);
 	KUNIT_EXPECT_EQ(test, t.stops, 2U);
-	kunit_info(test, "MMIX_USER faults=3 denied_return=ok control=ok\n");
+	kunit_info(test, "MMIX_USER faults=4 denied_return=ok control=ok\n");
 out:
 	if (worker) {
 		kthread_stop(worker);

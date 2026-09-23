@@ -43,12 +43,25 @@ struct mmix_rstack_registry {
 
 #ifdef CONFIG_MMIX_USER_TEST
 static atomic_long_t live_domains = ATOMIC_LONG_INIT(0);
+static atomic_long_t live_owners = ATOMIC_LONG_INIT(0);
+
+long mmix_rstack_owners_live(void)
+{
+	return atomic_long_read(&live_owners);
+}
 
 long mmix_rstack_domains_live(void)
 {
 	return atomic_long_read(&live_domains);
 }
 #endif
+
+static void account_owner(int delta)
+{
+#ifdef CONFIG_MMIX_USER_TEST
+	atomic_long_add(delta, &live_owners);
+#endif
+}
 
 static void account_domain(int delta)
 {
@@ -199,12 +212,11 @@ static void mark_domain(struct mm_struct *mm, struct mmix_rstack_domain *domain,
 	}
 }
 
-int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
-			      unsigned long *base)
+static int create_domain(struct mm_struct *mm, struct mmix_rstack_owner *owner,
+			 u64 parent, u64 *id, unsigned long *base)
 {
 	struct mmix_rstack_registry *registry = mm->context.rstacks;
 	struct mmix_rstack_domain *domain, *ancestor;
-	struct mmix_rstack_owner *owner = current->thread.rstack_owner;
 	unsigned long address, backing, populate;
 	vma_flags_t flags = legacy_to_vma_flags(VM_DONTEXPAND);
 	int error = -ENOMEM;
@@ -284,6 +296,37 @@ out:
 	mutex_unlock(&registry->lock);
 	kfree(domain);
 	return error;
+}
+
+int mmix_rstack_domain_create(struct mm_struct *mm, u64 parent, u64 *id,
+			      unsigned long *base)
+{
+	return create_domain(mm, current->thread.rstack_owner, parent, id, base);
+}
+
+/* Prepare an independent root without borrowing or changing the caller's owner. */
+struct mmix_rstack_owner *mmix_rstack_owner_create(struct mm_struct *mm, u64 *id,
+						   unsigned long *base)
+{
+	struct mmix_rstack_owner *owner;
+	int error;
+
+	if (mm != current->mm)
+		return ERR_PTR(-EINVAL);
+	if (fail_allocation())
+		return ERR_PTR(-ENOMEM);
+	owner = kzalloc_obj(*owner);
+	if (!owner)
+		return ERR_PTR(-ENOMEM);
+	owner->mm = mm;
+	/* Publish the root and its sole claim in the same registry transaction. */
+	error = create_domain(mm, owner, 0, id, base);
+	if (error) {
+		kfree(owner);
+		return ERR_PTR(error);
+	}
+	account_owner(1);
+	return owner;
 }
 
 static bool has_children(struct mm_struct *mm, u64 id)
@@ -386,6 +429,7 @@ struct mmix_rstack_owner *mmix_rstack_owner_alloc(struct mm_struct *mm, u64 chai
 	}
 	mmap_write_unlock(mm);
 	mutex_unlock(&registry->lock);
+	account_owner(1);
 	return owner;
 fail:
 	mutex_unlock(&registry->lock);
@@ -414,6 +458,7 @@ int mmix_rstack_owner_free(struct mmix_rstack_owner *owner)
 	error = collect_domains(mm);
 	mmap_write_unlock(mm);
 	mutex_unlock(&mm->context.rstacks->lock);
+	account_owner(-1);
 	kfree(owner);
 	return error;
 }

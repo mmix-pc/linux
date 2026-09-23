@@ -419,9 +419,301 @@ cleanup:
 	kunit_info(test, "MMIX_OWNER claims=ok rollback=ok retirement=ok exit=ok cycles=100\n");
 }
 
+struct independent_owner {
+	struct mmix_rstack_owner *owner;
+	struct completion ready, run, done;
+	u64 root, foreign;
+	unsigned long base, foreign_base;
+	unsigned int index;
+	bool stop;
+};
+
+static int independent_owner_run(void *data)
+{
+	struct independent_owner *state = data;
+	struct mmix_rstack_domain *domain;
+	unsigned long base, value;
+	u64 signal, invalid;
+	unsigned int round = 0;
+	int error = 0;
+
+	current->thread.rstack_owner = state->owner;
+	current->thread.rstack_chain = state->root;
+	if (mmix_rstack_domain_create(current->mm, state->root, &signal, &base))
+		error = 1;
+	else
+		current->thread.rstack_chain = signal;
+	complete(&state->ready);
+	for (;;) {
+		if (!wait_for_completion_timeout(&state->run, 10 * HZ))
+			return 8;
+		if (READ_ONCE(state->stop))
+			break;
+		if (!error) {
+			domain = mmix_rstack_domain_begin(current->mm, state->root,
+							  state->base, sizeof(value));
+			if (IS_ERR(domain)) {
+				error = 2;
+			} else {
+				value = (state->index + 1) * 1000 + round;
+				if (put_user(value, (unsigned long __user *)state->base))
+					error = 3;
+				mmix_rstack_domain_end(current->mm, domain);
+			}
+			domain = mmix_rstack_domain_begin(current->mm, state->foreign,
+							  state->foreign_base, sizeof(value));
+			if (!IS_ERR(domain)) {
+				mmix_rstack_domain_end(current->mm, domain);
+				error = 4;
+			} else if (PTR_ERR(domain) != -EFAULT) {
+				error = 5;
+			}
+			if (mmix_rstack_domain_release(current->mm, state->foreign) != -EPERM ||
+			    mmix_rstack_domain_create(current->mm, state->foreign,
+						      &invalid, &value) != -EPERM ||
+			    vm_munmap(state->foreign_base, PAGE_SIZE) != -EPERM ||
+			    sys_mprotect(state->base, PAGE_SIZE, PROT_NONE) != -EPERM)
+				error = 6;
+			if (get_user(value, (unsigned long __user *)state->base) ||
+			    value != (state->index + 1) * 1000 + round)
+				error = 7;
+		}
+		round++;
+		complete(&state->done);
+	}
+	/* Native task exit drops this root and its private descendant only. */
+	return error ?: 37;
+}
+
+static int independent_owner_fork(void *data)
+{
+	struct independent_owner *state = data;
+	struct mmix_rstack_domain *domain;
+	unsigned long value;
+
+	current->thread.rstack_chain = state->foreign;
+	current->thread.rstack_owner = mmix_rstack_owner_alloc(current->mm, state->foreign);
+	if (IS_ERR(current->thread.rstack_owner)) {
+		current->thread.rstack_owner = NULL;
+		return 1;
+	}
+	domain = mmix_rstack_domain_begin(current->mm, state->foreign,
+					  state->foreign_base, sizeof(value));
+	if (IS_ERR(domain))
+		return 2;
+	if (get_user(value, (unsigned long __user *)state->foreign_base) || value != 0x1234 ||
+	    put_user(0xabcdUL, (unsigned long __user *)state->foreign_base)) {
+		mmix_rstack_domain_end(current->mm, domain);
+		return 3;
+	}
+	mmix_rstack_domain_end(current->mm, domain);
+	domain = mmix_rstack_domain_begin(current->mm, state->root, state->base, sizeof(value));
+	if (!IS_ERR(domain)) {
+		mmix_rstack_domain_end(current->mm, domain);
+		return 4;
+	}
+	/* The peer's data is inherited, but its active-domain authority is not. */
+	if (get_user(value, (unsigned long __user *)state->base) || value != 1009 ||
+	    vm_munmap(state->base - PAGE_SIZE, SZ_1M + 3 * PAGE_SIZE))
+		return 5;
+	return 37;
+}
+
+static void independent_owners(struct kunit *test)
+{
+	struct independent_owner *workers;
+	struct mmix_rstack_owner *parent, *failed;
+	struct mm_struct *mm = mm_alloc();
+	struct vm_area_struct *vma;
+	struct kernel_clone_args args = {
+		.flags = CLONE_VM,
+		.fn = independent_owner_run,
+		.exit_signal = SIGCHLD,
+	};
+	__sighandler_t handler = current->sighand->action[SIGCHLD - 1].sa.sa_handler;
+	u64 root, untouched_id, old_chain = current->thread.rstack_chain;
+	unsigned long base, untouched_base, value, address, waited;
+	pid_t pids[4], forked;
+	unsigned int cycle, i, j, round;
+	int maps, status;
+#ifdef CONFIG_MMIX_USER_TEST
+	long owners = mmix_rstack_owners_live();
+	long domains = mmix_rstack_domains_live();
+#endif
+
+	KUNIT_ASSERT_NOT_NULL(test, mm);
+	workers = kunit_kcalloc(test, ARRAY_SIZE(pids), sizeof(*workers), GFP_KERNEL);
+	if (!workers) {
+		mmput(mm);
+		KUNIT_FAIL(test, "worker records");
+		return;
+	}
+	KUNIT_ASSERT_NULL(test, current->thread.rstack_owner);
+	mm->mmap_base = TASK_UNMAPPED_BASE;
+	kthread_use_mm(mm);
+	maps = mm->map_count;
+	parent = mmix_rstack_owner_create(mm, &root, &base);
+	if (IS_ERR(parent)) {
+		KUNIT_FAIL(test, "independent parent root");
+		goto out;
+	}
+	current->thread.rstack_owner = parent;
+	current->thread.rstack_chain = root;
+	KUNIT_EXPECT_EQ(test, put_user(0x1234UL, (unsigned long __user *)base), 0);
+	kernel_sigaction(SIGCHLD, SIG_DFL);
+	for (cycle = 0; cycle < 100; cycle++) {
+		/* Owner, domain, reservation and backing failures leave no publication. */
+		for (i = 0; i < 4; i++) {
+			untouched_id = U64_MAX;
+			untouched_base = ULONG_MAX;
+			mmix_rstack_domain_fail_after(i);
+			failed = mmix_rstack_owner_create(mm, &untouched_id, &untouched_base);
+			mmix_rstack_domain_fail_after(-1);
+			KUNIT_EXPECT_TRUE(test, IS_ERR(failed));
+			if (!IS_ERR(failed))
+				mmix_rstack_owner_free(failed);
+			else
+				KUNIT_EXPECT_EQ(test, PTR_ERR(failed), -ENOMEM);
+			KUNIT_EXPECT_EQ(test, untouched_id, U64_MAX);
+			KUNIT_EXPECT_EQ(test, untouched_base, ULONG_MAX);
+			KUNIT_EXPECT_EQ(test, mm->map_count, maps + 3);
+		}
+		/* A later task-creation failure consumes an unpublished prepared owner. */
+		failed = mmix_rstack_owner_create(mm, &untouched_id, &untouched_base);
+		KUNIT_EXPECT_FALSE(test, IS_ERR(failed));
+		if (!IS_ERR(failed)) {
+			KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(failed), 0);
+			KUNIT_EXPECT_EQ(test, mm->map_count, maps + 3);
+		}
+		memset(workers, 0, ARRAY_SIZE(pids) * sizeof(*workers));
+		memset(pids, 0, sizeof(pids));
+		for (i = 0; i < ARRAY_SIZE(pids); i++) {
+			struct independent_owner *worker = &workers[i];
+
+			init_completion(&worker->ready);
+			init_completion(&worker->run);
+			init_completion(&worker->done);
+			worker->index = i;
+			worker->foreign = root;
+			worker->foreign_base = base;
+			worker->owner = mmix_rstack_owner_create(mm, &worker->root, &worker->base);
+			if (IS_ERR(worker->owner)) {
+				worker->owner = NULL;
+				KUNIT_FAIL(test, "independent worker root");
+				break;
+			}
+			KUNIT_EXPECT_PTR_EQ(test, current->thread.rstack_owner, parent);
+			KUNIT_EXPECT_EQ(test, current->thread.rstack_chain, root);
+			KUNIT_EXPECT_EQ(test, mmix_rstack_domain_release(mm, worker->root), -EPERM);
+			for (j = 0; j < i; j++) {
+				unsigned long low = min(worker->base, workers[j].base);
+				unsigned long high = max(worker->base, workers[j].base);
+
+				KUNIT_EXPECT_NE(test, worker->root, workers[j].root);
+				KUNIT_EXPECT_GE(test, high - low, SZ_1M + 3 * PAGE_SIZE);
+			}
+			mmap_read_lock(mm);
+			vma = find_vma(mm, worker->base - PAGE_SIZE);
+			KUNIT_EXPECT_TRUE(test, vma_is_arch_owned(vma));
+			KUNIT_EXPECT_EQ(test, vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC), 0UL);
+			vma = find_vma(mm, worker->base + SZ_1M);
+			KUNIT_EXPECT_TRUE(test, vma_is_arch_owned(vma));
+			KUNIT_EXPECT_EQ(test, vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC), 0UL);
+			mmap_read_unlock(mm);
+			args.fn_arg = worker;
+			pids[i] = kernel_clone(&args);
+			KUNIT_EXPECT_GT(test, pids[i], 0);
+			if (pids[i] <= 0)
+				break;
+			waited = wait_for_completion_timeout(&worker->ready, 10 * HZ);
+			KUNIT_EXPECT_NE(test, waited, 0UL);
+		}
+		/* Keep all four owners live while their materialization alternates. */
+		for (round = 0; round < 10; round++) {
+			for (j = 0; j < ARRAY_SIZE(pids); j++) {
+				if (pids[j] <= 0)
+					continue;
+				complete(&workers[j].run);
+				waited = wait_for_completion_timeout(&workers[j].done, 10 * HZ);
+				KUNIT_EXPECT_NE(test, waited, 0UL);
+				status = get_user(value, (unsigned long __user *)workers[j].base);
+				KUNIT_EXPECT_EQ(test, status, 0);
+				KUNIT_EXPECT_EQ(test, value, (j + 1) * 1000UL + round);
+			}
+		}
+		if (i == ARRAY_SIZE(pids)) {
+			args.flags = 0;
+			args.fn = independent_owner_fork;
+			args.fn_arg = &workers[0];
+			forked = kernel_clone(&args);
+			KUNIT_EXPECT_GT(test, forked, 0);
+			if (forked > 0) {
+				status = -1;
+				KUNIT_EXPECT_EQ(test, kernel_wait(forked, &status), forked);
+				KUNIT_EXPECT_EQ(test, status, 37);
+			}
+			args.flags = CLONE_VM;
+			args.fn = independent_owner_run;
+		}
+		for (j = 0; j < ARRAY_SIZE(pids); j++) {
+			if (pids[j] > 0) {
+				WRITE_ONCE(workers[j].stop, true);
+				complete(&workers[j].run);
+				status = -1;
+				KUNIT_EXPECT_EQ(test, kernel_wait(pids[j], &status), pids[j]);
+				KUNIT_EXPECT_EQ(test, status, 37);
+			} else {
+				/* Reclaim a root which was never transferred to a task. */
+				KUNIT_EXPECT_EQ(test, mmix_rstack_owner_free(workers[j].owner), 0);
+			}
+			if (!workers[j].owner)
+				continue;
+			/* The retired reservation can be reused without affecting survivors. */
+			address = vm_mmap(NULL, workers[j].base - PAGE_SIZE,
+					  SZ_1M + 3 * PAGE_SIZE, PROT_READ | PROT_WRITE,
+					  MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, 0);
+			KUNIT_EXPECT_EQ(test, address, workers[j].base - PAGE_SIZE);
+			if (!IS_ERR_VALUE(address))
+				KUNIT_EXPECT_EQ(test, vm_munmap(address, SZ_1M + 3 * PAGE_SIZE), 0);
+			if (j + 1 < ARRAY_SIZE(pids) && pids[j + 1] > 0) {
+				address = workers[j + 1].base;
+				status = get_user(value, (unsigned long __user *)address);
+				KUNIT_EXPECT_EQ(test, status, 0);
+				KUNIT_EXPECT_EQ(test, value, (j + 2) * 1000UL + 9);
+				KUNIT_EXPECT_EQ(test, sys_mprotect(workers[j + 1].base,
+								   PAGE_SIZE, PROT_NONE), -EPERM);
+			}
+		}
+		KUNIT_EXPECT_EQ(test, mm->map_count, maps + 3);
+#ifdef CONFIG_MMIX_USER_TEST
+		KUNIT_EXPECT_EQ(test, mmix_rstack_owners_live(), owners + 1);
+		KUNIT_EXPECT_EQ(test, mmix_rstack_domains_live(), domains + 1);
+#endif
+		KUNIT_EXPECT_EQ(test, get_user(value, (unsigned long __user *)base), 0);
+		KUNIT_EXPECT_EQ(test, value, 0x1234UL);
+		if (i != ARRAY_SIZE(pids))
+			break;
+	}
+	KUNIT_EXPECT_EQ(test, cycle, 100U);
+	kernel_sigaction(SIGCHLD, handler);
+	mmix_rstack_detach(current, mm);
+	mmix_rstack_detach(current, mm);
+	KUNIT_EXPECT_EQ(test, mm->map_count, maps);
+out:
+	current->thread.rstack_chain = old_chain;
+	kthread_unuse_mm(mm);
+	mmput(mm);
+#ifdef CONFIG_MMIX_USER_TEST
+	KUNIT_EXPECT_EQ(test, mmix_rstack_owners_live(), owners);
+	KUNIT_EXPECT_EQ(test, mmix_rstack_domains_live(), domains);
+#endif
+	kunit_info(test, "MMIX_INDEPENDENT owners=4 cycles=100 rollback=ok isolation=ok exit=ok\n");
+}
+
 static struct kunit_case rstack_domain_cases[] = {
 	KUNIT_CASE(owned_domains),
 	KUNIT_CASE(shared_owners),
+	KUNIT_CASE_SLOW(independent_owners),
 	{}
 };
 

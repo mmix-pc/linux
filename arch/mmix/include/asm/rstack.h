@@ -11,6 +11,9 @@ struct task_struct;
 
 /* Private continuation claims; the caller keeps mm alive until detach. */
 struct mmix_rstack_owner *mmix_rstack_owner_alloc(struct mm_struct *mm, u64 chain);
+/* Independent root; caller holds mm_users and either transfers or frees owner. */
+struct mmix_rstack_owner *mmix_rstack_owner_create(struct mm_struct *mm, u64 *id,
+						   unsigned long *base);
 int mmix_rstack_owner_free(struct mmix_rstack_owner *owner);
 void mmix_rstack_detach(struct task_struct *task, struct mm_struct *mm);
 
@@ -33,6 +36,7 @@ int mmix_rstack_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm);
 
 #ifdef CONFIG_MMIX_USER_TEST
 long mmix_rstack_domains_live(void);
+long mmix_rstack_owners_live(void);
 #endif
 
 #ifdef CONFIG_MMIX_BOOT_TEST

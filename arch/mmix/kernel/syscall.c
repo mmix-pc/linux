@@ -75,15 +75,39 @@ SYSCALL_DEFINE5(clone, unsigned long, flags, unsigned long, stack,
 		int __user *, parent_tid, int __user *, child_tid, unsigned long, tls)
 {
 	struct kernel_clone_args args = { .exit_signal = SIGCHLD };
+	const unsigned long thread_flags = CLONE_VM | CLONE_FS | CLONE_FILES |
+		CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+		CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+	const unsigned long optional_flags = CLONE_SETTLS | CLONE_CHILD_SETTID;
 
-	if (stack)
-		return -EOPNOTSUPP;
-	if (flags == SIGCHLD)
+	if (flags == SIGCHLD) {
+		if (stack)
+			return -EOPNOTSUPP;
 		return kernel_clone(&args);
-	if (flags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
+	}
+	if (flags == (CLONE_VM | CLONE_VFORK | SIGCHLD)) {
+		if (stack)
+			return -EOPNOTSUPP;
+		args.flags = CLONE_VM | CLONE_VFORK;
+		return mmix_vfork_clone(&args);
+	}
+	if (!IS_ENABLED(CONFIG_MMIX_THREAD_ENTRY))
 		return -EOPNOTSUPP;
-	args.flags = CLONE_VM | CLONE_VFORK;
-	return mmix_vfork_clone(&args);
+	/* Match the generic clone dependency errors before profile admission. */
+	if (((flags & CLONE_THREAD) && !(flags & CLONE_SIGHAND)) ||
+	    ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM)))
+		return -EINVAL;
+	if ((flags & ~optional_flags) != thread_flags)
+		return -EOPNOTSUPP;
+	if (!stack || (stack & 7) || stack >= TASK_SIZE)
+		return -EINVAL;
+	args.flags = flags;
+	args.exit_signal = 0;
+	args.stack = stack;
+	args.parent_tid = parent_tid;
+	args.child_tid = child_tid;
+	args.tls = tls;
+	return kernel_clone(&args);
 }
 
 typedef long (*syscall_fn)(unsigned long, unsigned long, unsigned long, unsigned long,

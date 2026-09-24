@@ -55,6 +55,15 @@ config NR_CPUS
 
 source "kernel/Kconfig.hz"
 
+config MMIX_THREAD_ENTRY
+	bool "MMIX native thread entry"
+	depends on VMAP_STACK && PREEMPTION
+	help
+	  Enable the selected raw clone thread-entry profile. Keep disabled in
+	  ordinary configurations until thread-group lifecycle and directed
+	  signal handling have been qualified together with the userspace
+	  runtime. This option does not provide pthread or compiler TLS support.
+
 config MMIX_BOOT_TEST
 	bool "MMIX integrated boot tests"
 	depends on KUNIT=y

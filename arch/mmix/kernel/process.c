@@ -151,17 +151,30 @@ static int user_child(void *unused)
 int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 {
 	struct mmix_rstack *stack;
+	const unsigned long thread_flags = CLONE_VM | CLONE_FS | CLONE_FILES |
+		CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+		CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+	const unsigned long optional_flags = CLONE_SETTLS | CLONE_CHILD_SETTID;
+	bool user_thread = !args->fn && (args->flags & CLONE_THREAD);
 	unsigned long base;
 	unsigned int i;
 	int err = -ENOMEM;
 
-	/* Native shared-mm children require a prepared vfork checkpoint. */
+	/* Native shared-mm children need either a fresh root or a vfork checkpoint. */
 	if (!args->fn) {
-		if ((args->flags && args->flags != (CLONE_VM | CLONE_VFORK)) ||
-		    (args->flags && !current->thread.vfork_prepare) ||
-		    args->stack || args->stack_size ||
-		    args->exit_signal != SIGCHLD || !current->thread.user_state)
+		if (!current->thread.user_state || args->stack_size)
 			return -EOPNOTSUPP;
+		if (user_thread) {
+			if (!IS_ENABLED(CONFIG_MMIX_THREAD_ENTRY) ||
+			    (args->flags & ~optional_flags) != thread_flags ||
+			    args->exit_signal || !args->stack || (args->stack & 7) ||
+			    args->stack >= TASK_SIZE || task->mm != current->mm)
+				return -EOPNOTSUPP;
+		} else if ((args->flags && args->flags != (CLONE_VM | CLONE_VFORK)) ||
+			   (args->flags && !current->thread.vfork_prepare) ||
+			   args->stack || args->exit_signal != SIGCHLD) {
+			return -EOPNOTSUPP;
+		}
 	}
 	if (rstack_fail())
 		return -ENOMEM;
@@ -215,34 +228,56 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		}
 		state = mmix_user_rstack_state(task->thread.user_state);
 		state->regs.regs[231] = 0;
-		task->thread.rstack_chain = current->thread.rstack_chain;
-		if (task->thread.rstack_chain) {
+		if (user_thread) {
+			unsigned long root;
+
+			task->thread.rstack_owner =
+				mmix_rstack_owner_create(task->mm, &task->thread.rstack_chain,
+							 &root);
+			if (IS_ERR(task->thread.rstack_owner)) {
+				err = PTR_ERR(task->thread.rstack_owner);
+				task->thread.rstack_owner = NULL;
+				goto fail;
+			}
+			memset(state->regs.regs, 0, 230 * sizeof(unsigned long));
+			state->regs.r_l = 0;
+			state->regs.r_o = root;
+			state->regs.r_j = 0;
+			state->regs.regs[253] = 0;
+			state->regs.regs[254] = args->stack;
+			state->regs.regs[231] = 0;
+			if (args->flags & CLONE_SETTLS)
+				state->regs.regs[230] = args->tls;
+			memset(&state->pending, 0, sizeof(state->pending));
+			state->pending.start = root;
+		} else {
+			task->thread.rstack_chain = current->thread.rstack_chain;
+		}
+		if (!user_thread && task->thread.rstack_chain) {
 			task->thread.rstack_owner =
 				mmix_rstack_owner_alloc(task->mm, task->thread.rstack_chain);
 			if (IS_ERR(task->thread.rstack_owner)) {
 				err = PTR_ERR(task->thread.rstack_owner);
 				task->thread.rstack_owner = NULL;
-				mmix_user_rstack_free(&task->thread.user_state);
 				goto fail;
 			}
 		}
-		err = mmix_signal_dup(task);
-		if (err) {
-			mmix_user_rstack_free(&task->thread.user_state);
-			goto fail;
+		if (!user_thread) {
+			err = mmix_signal_dup(task);
+			if (err)
+				goto fail;
 		}
-		if (args->flags) {
+		if (!user_thread && args->flags) {
 			err = mmix_vfork_attach(task);
-			if (err) {
-				mmix_signal_free(task);
-				mmix_user_rstack_free(&task->thread.user_state);
+			if (err)
 				goto fail;
-			}
 		}
 	}
 	task->thread.rstack = stack;
 	return 0;
 fail:
+	mmix_signal_free(task);
+	mmix_user_rstack_free(&task->thread.user_state);
 	mmix_rstack_detach(task, task->mm);
 	free_rstack(stack);
 	memset(&task->thread, 0, sizeof(task->thread));

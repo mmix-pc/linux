@@ -36,7 +36,7 @@ unsigned long mmix_rstack_released(void)
 }
 #endif
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_t rstack_fail_step = ATOMIC_INIT(-1);
 
 void mmix_rstack_fail_after(int steps)

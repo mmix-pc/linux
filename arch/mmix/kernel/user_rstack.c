@@ -19,14 +19,17 @@ long mmix_user_rstack_live(void)
 }
 #endif
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_t fail_step = ATOMIC_INIT(-1);
+
+#ifdef CONFIG_MMIX_BOOT_TEST
 static atomic_long_t write_limit = ATOMIC_LONG_INIT(-1);
 
 void mmix_user_rstack_write_limit(long bytes)
 {
 	atomic_long_set(&write_limit, bytes);
 }
+#endif
 
 void mmix_user_rstack_fail_after(int step)
 {

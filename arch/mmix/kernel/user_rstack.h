@@ -44,8 +44,10 @@ int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,
 			     int (*write)(void *arg, unsigned long address, const void *data,
 					  size_t size),
 			     void *arg, unsigned long *base, unsigned long *top);
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 void mmix_user_rstack_fail_after(int step);
+#endif
+#ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_user_rstack_write_limit(long bytes);
 #endif
 #if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)

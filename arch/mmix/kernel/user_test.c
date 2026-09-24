@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/debugfs.h>
 #include <linux/err.h>
+#include <linux/fs.h>
 #include <linux/init.h>
+#include <linux/kstrtox.h>
 #include <linux/seq_file.h>
 #include <asm/rstack.h>
 #include "signal.h"
@@ -33,6 +35,37 @@ static int vfork_stats_show(struct seq_file *seq, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(vfork_stats);
 
+static int domain_failure;
+static int user_state_failure;
+
+static ssize_t fail_after_write(struct file *file, const char __user *buffer,
+				size_t count, loff_t *position)
+{
+	int step, error;
+
+	if (*position)
+		return -EINVAL;
+	error = kstrtoint_from_user(buffer, count, 10, &step);
+	if (error)
+		return error;
+	if (step < -1 || step > 32)
+		return -EINVAL;
+	if (file->private_data == &domain_failure)
+		mmix_rstack_domain_fail_after(step);
+	else if (file->private_data == &user_state_failure)
+		mmix_user_rstack_fail_after(step);
+	else
+		mmix_rstack_fail_after(step);
+	*position += count;
+	return count;
+}
+
+static const struct file_operations fail_after_fops = {
+	.open = simple_open,
+	.write = fail_after_write,
+	.llseek = noop_llseek,
+};
+
 static int __init user_test_init(void)
 {
 	struct dentry *dir, *file;
@@ -51,6 +84,24 @@ static int __init user_test_init(void)
 		return PTR_ERR(file);
 	}
 	file = debugfs_create_file("vfork_stats", 0400, dir, NULL, &vfork_stats_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("rstack_fail_after", 0200, dir, NULL,
+				   &fail_after_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("domain_fail_after", 0200, dir,
+				   &domain_failure, &fail_after_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("user_state_fail_after", 0200, dir,
+				   &user_state_failure, &fail_after_fops);
 	if (IS_ERR(file)) {
 		debugfs_remove(dir);
 		return PTR_ERR(file);

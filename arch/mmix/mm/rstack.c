@@ -70,14 +70,8 @@ static void account_domain(int delta)
 #endif
 }
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 static atomic_t allocation_failure = ATOMIC_INIT(-1);
-static atomic_t release_failure = ATOMIC_INIT(0);
-
-void mmix_rstack_domain_fail_release(void)
-{
-	atomic_set(&release_failure, 1);
-}
 
 void mmix_rstack_domain_fail_after(int step)
 {
@@ -93,6 +87,15 @@ static bool fail_allocation(void)
 static bool fail_allocation(void)
 {
 	return false;
+}
+#endif
+
+#ifdef CONFIG_MMIX_BOOT_TEST
+static atomic_t release_failure = ATOMIC_INIT(0);
+
+void mmix_rstack_domain_fail_release(void)
+{
+	atomic_set(&release_failure, 1);
 }
 #endif
 

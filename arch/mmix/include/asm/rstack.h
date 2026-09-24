@@ -39,8 +39,11 @@ long mmix_rstack_domains_live(void);
 long mmix_rstack_owners_live(void);
 #endif
 
-#ifdef CONFIG_MMIX_BOOT_TEST
+#if defined(CONFIG_MMIX_BOOT_TEST) || defined(CONFIG_MMIX_USER_TEST)
 void mmix_rstack_domain_fail_after(int step);
+#endif
+
+#ifdef CONFIG_MMIX_BOOT_TEST
 void mmix_rstack_domain_fail_release(void);
 #endif
 

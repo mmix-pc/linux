@@ -144,8 +144,8 @@ static int user_child(void *unused)
 {
 	int error = mmix_user_enter(current->thread.user_state, NULL, NULL);
 
-	/* A native user task can only return here if initial admission failed. */
-	do_group_exit(error ? SIGSEGV : 0);
+	/* Failed child admission must not terminate already-running peers. */
+	return error ? SIGSEGV : 0;
 }
 
 int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)

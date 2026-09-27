@@ -53,5 +53,8 @@ void mmix_user_run(struct mmix_user_entry *entry);
 int mmix_user_dispatch(struct mmix_user_entry *entry);
 void mmix_user_capture_entry(void);
 void mmix_user_invalid_entry(void);
+#ifdef CONFIG_MMIX_USER_TEST
+void mmix_user_entry_fail_after(int steps);
+#endif
 
 #endif

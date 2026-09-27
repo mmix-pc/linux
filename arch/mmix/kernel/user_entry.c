@@ -15,6 +15,26 @@
 struct mmix_user_entry *mmix_active_user;
 unsigned long mmix_user_shadow_active;
 
+#ifdef CONFIG_MMIX_USER_TEST
+static atomic_t entry_fail_step = ATOMIC_INIT(-1);
+
+void mmix_user_entry_fail_after(int steps)
+{
+	atomic_set(&entry_fail_step, steps);
+}
+
+static bool entry_fail(void)
+{
+	return atomic_read(&entry_fail_step) >= 0 &&
+		atomic_dec_return(&entry_fail_step) < 0;
+}
+#else
+static inline bool entry_fail(void)
+{
+	return false;
+}
+#endif
+
 int mmix_user_write(void *data, unsigned long address, const void *source, size_t size)
 {
 	unsigned long flags;
@@ -112,6 +132,8 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 		return -EBUSY;
 	if (!stack || !ops->event)
 		return -EINVAL;
+	if (entry_fail())
+		return -ENOMEM;
 	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;

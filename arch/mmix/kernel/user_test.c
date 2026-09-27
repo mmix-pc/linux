@@ -9,6 +9,7 @@
 #include "signal.h"
 #include "process.h"
 #include "user_rstack.h"
+#include "user_entry.h"
 #include "vfork.h"
 
 static int rstack_stats_show(struct seq_file *seq, void *unused)
@@ -37,6 +38,7 @@ DEFINE_SHOW_ATTRIBUTE(vfork_stats);
 
 static int domain_failure;
 static int user_state_failure;
+static int entry_failure;
 
 static ssize_t fail_after_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *position)
@@ -54,6 +56,8 @@ static ssize_t fail_after_write(struct file *file, const char __user *buffer,
 		mmix_rstack_domain_fail_after(step);
 	else if (file->private_data == &user_state_failure)
 		mmix_user_rstack_fail_after(step);
+	else if (file->private_data == &entry_failure)
+		mmix_user_entry_fail_after(step);
 	else
 		mmix_rstack_fail_after(step);
 	*position += count;
@@ -102,6 +106,12 @@ static int __init user_test_init(void)
 	}
 	file = debugfs_create_file("user_state_fail_after", 0200, dir,
 				   &user_state_failure, &fail_after_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("entry_fail_after", 0200, dir,
+				   &entry_failure, &fail_after_fops);
 	if (IS_ERR(file)) {
 		debugfs_remove(dir);
 		return PTR_ERR(file);

@@ -20,7 +20,7 @@
 #define DATA (6UL << 20)
 #define ENV (DATA + 4096)
 #define REQUEST (DATA + 256)
-#define CASES 75
+#define CASES 76
 
 struct jump_test {
 	struct mmix_rstack_owner *borrower;
@@ -178,6 +178,11 @@ static int jump_event(struct mmix_user_entry *entry, void *data)
 		if (mode == 5)
 			KUNIT_EXPECT_EQ(test, current->blocked.sig[0],
 					sigmask(SIGUSR2));
+		if (mode == 75) {
+			KUNIT_EXPECT_EQ(test, current->blocked.sig[0],
+					~(sigmask(SIGKILL) | sigmask(SIGSTOP)));
+			KUNIT_EXPECT_TRUE(test, sigismember(&current->pending.signal, 32));
+		}
 		if (mode == 6)
 			KUNIT_EXPECT_TRUE(test, sigismember(&current->blocked,
 							    SIGUSR1));
@@ -325,9 +330,9 @@ static int jump_event(struct mmix_user_entry *entry, void *data)
 			}
 			KUNIT_EXPECT_EQ(test, mmix_signal_live(),
 					mode == 4 || mode == 8 || mode == 63 ? 1L : 0L);
-			if (mode == 9 || (mode == 74 && t->jumps == 1)) {
+			if (mode == 9 || mode == 75 || (mode == 74 && t->jumps == 1)) {
 				local_irq_enable();
-				send_sig(mode == 9 ? SIGUSR2 : SIGUSR1, current,
+				send_sig(mode == 75 ? 32 : mode == 9 ? SIGUSR2 : SIGUSR1, current,
 					 0);
 				local_irq_disable();
 				t->injected++;
@@ -370,7 +375,8 @@ static int jump_child(void *data)
 	state->regs.r_o = base;
 	state->pending.start = base;
 	state->regs.regs[254] = DATA + SZ_512K;
-	state->regs.regs[242] = t->mode;
+	state->regs.regs[242] = t->mode == 75 ? 5 : t->mode;
+	state->regs.regs[243] = t->mode;
 	state->regs.regs[230] = 0x1234;
 	state->regs.r_d = 9;
 	state->regs.r_e = 10;
@@ -476,7 +482,8 @@ static void transfer_case(struct kunit *test)
 		KUNIT_EXPECT_EQ(test, t->landed,
 				fatal || reject || mode == 66 ? 0U : 1U);
 		KUNIT_EXPECT_EQ(test, t->jumps,
-				((mode >= 10 && mode <= 40) || mode >= 68) ? 2U : 1U);
+				((mode >= 10 && mode <= 40) ||
+				 (mode >= 68 && mode <= 74)) ? 2U : 1U);
 		if ((mode >= 10 && mode <= 42) || mode == 9 || mode == 64 ||
 		    mode == 65 || mode == 67 || mode >= 68)
 			KUNIT_EXPECT_EQ(test, t->injected, 1U);

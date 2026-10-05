@@ -279,6 +279,7 @@ static const struct signal_expectation expectations[] = {
 	[75] = { 0, 1, 1, 0 },
 	[76] = { 0, 1, 1, 0 },
 	[77] = { 0, 1, 1, 0 },
+	[78 ... 79] = { SIGSEGV, 1, 1, 0 },
 };
 
 static void delivery_return_case(struct kunit *test)

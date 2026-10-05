@@ -169,6 +169,7 @@ static int setup_frame(struct mmix_user_entry *entry, struct ksignal *ksig,
 	frame->uc.uc_sigmask = *sigmask_to_save();
 	frame->uc.uc_mcontext.sc_regs = state->regs;
 	frame->uc.uc_mcontext.sc_rstack = activation->state.pending;
+	frame->uc.uc_mcontext.sc_chain_id = activation->chain;
 	error = mmix_rstack_domain_create(current->mm, activation->chain,
 					  &activation->handler_chain, &base);
 	if (error)
@@ -277,6 +278,7 @@ static bool valid_context(const struct mmix_signal_activation *activation,
 	const struct user_regs_struct *regs = &uc->uc_mcontext.sc_regs;
 
 	if (uc->uc_flags || uc->uc_link ||
+	    uc->uc_mcontext.sc_chain_id != activation->chain ||
 	    memchr_inv(uc->__unused, 0, sizeof(uc->__unused)) ||
 	    memchr_inv(uc->uc_mcontext.reserved, 0,
 		       sizeof(uc->uc_mcontext.reserved)) ||

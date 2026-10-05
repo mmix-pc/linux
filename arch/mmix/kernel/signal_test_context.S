@@ -248,6 +248,23 @@ mmix_signal_test_start:
 	SETL r237,__NR_exit
 	TRAP 1,0,0
 .Lregularhandler:
+	/* Querying here identifies the handler, not the interrupted chain. */
+	OR r2,r231,0
+	OR r3,r232,0
+	OR r4,r233,0
+	SETL r255,10560
+	LDOU r5,r233,r255
+	BZB r5,.Lbad
+	ADDU r231,r238,224
+	SETL r237,__NR_mmix_rstack_query
+	TRAP 1,0,0
+	BNZB r231,.Lbad
+	LDOU r255,r238,224
+	CMPU r255,r255,r5
+	BZB r255,.Lbad
+	OR r231,r2,0
+	OR r232,r3,0
+	OR r233,r4,0
 	LDTU r255,r232,0
 	CMPU r255,r255,r231
 	BNZB r255,.Lbad
@@ -333,10 +350,23 @@ mmix_signal_test_start:
 .Ledit18next:
 	CMPU r255,r242,17
 	BNZ r255,.Ledit17next
-	SETL r255,10560
+	SETL r255,10568
 	SETL r1,1
 	STOU r1,r233,r255
 .Ledit17next:
+	CMPU r255,r243,78
+	BNZ r255,.Lchainzero
+	SETL r255,10560
+	LDOU r1,r233,r255
+	ADDU r1,r1,1
+	STOU r1,r233,r255
+.Lchainzero:
+	CMPU r255,r243,79
+	BNZ r255,.Lchainready
+	SETL r255,10560
+	SETL r1,0
+	STOU r1,r233,r255
+.Lchainready:
 	CMPU r255,r242,16
 	BNZ r255,.Ledit16next
 	SETL r255,2352

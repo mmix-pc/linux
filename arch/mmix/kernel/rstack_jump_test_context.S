@@ -298,6 +298,11 @@ mmix_jump_push:
 	STOU r255,r241,32
 	SETL r255,0x900
 	ORML r255,4
+	CMPU r231,r243,75
+	BNZ r231,.Lmaskready
+	SETL r255,0
+	SUBU r255,r255,1
+.Lmaskready:
 	STOU r255,r241,40
 .Lrequest:
 	BNZ r244,.Lsubmit

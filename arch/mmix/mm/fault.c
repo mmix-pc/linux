@@ -89,9 +89,10 @@ int mmix_handle_page_fault(struct pt_regs *regs)
 	}
 	/* Protection traps do not promise a fault address in rYY (MMIX, section 36). */
 	if (regs->r_xx >> 32 != 0x03000000UL) {
+		/* PUSHGO writes the register stack, not its branch target. */
 		if (access == VM_EXEC) {
 			address = regs->pc;
-		} else if ((opcode >= 0x80 && opcode <= 0xbf) &&
+		} else if ((opcode >= 0x80 && opcode <= 0xb7) &&
 			   (access != VM_WRITE || opcode >= 0xa0 || (opcode & ~1U) == 0x94)) {
 			unsigned int y = (regs->r_xx >> 8) & 0xff;
 			unsigned int z = regs->r_xx & 0xff;

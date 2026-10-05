@@ -11,10 +11,19 @@
 #include "entry.h"
 #include "user_entry.h"
 #include "process.h"
-#include "../mm/mmu.h"
+#include "cpu_local.h"
 
 int main(void)
 {
+	DEFINE(CPU_SIZE, sizeof(struct mmix_cpu_state));
+	DEFINE(CPU_ENTRY, offsetof(struct mmix_cpu_state, entry));
+	DEFINE(CPU_MMU, offsetof(struct mmix_cpu_state, mmu));
+	DEFINE(CPU_USER, offsetof(struct mmix_cpu_state, active_user));
+	DEFINE(CPU_IRQ, offsetof(struct mmix_cpu_state, irq_mask));
+	DEFINE(CPU_SHADOW, offsetof(struct mmix_cpu_state, shadow_active));
+	DEFINE(CPU_PREV, offsetof(struct mmix_cpu_state, switch_prev));
+	DEFINE(CPU_ID, offsetof(struct mmix_cpu_state, id));
+	DEFINE(CPU_CONT, offsetof(struct mmix_cpu_state, continuation));
 	DEFINE(TASK_THREAD, offsetof(struct task_struct, thread));
 	DEFINE(PT_PC, offsetof(struct pt_regs, pc));
 	DEFINE(PT_MASK, offsetof(struct pt_regs, mask));

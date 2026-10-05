@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <generated/asm-offsets.h>
+#include <asm/cpu_local.h>
 .text
 .balign 4
 .globl mmix_user_run
@@ -11,17 +12,17 @@ mmix_user_run:
 .Lsave_kernel:
 	SAVE r255
 	STOU r255,r231,USER_KERNEL_SAVE
-	GETA r255,%geta(mmix_active_user)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_USER
 	STOU r231,r255,0
 	PUT rC,0
-	GETA r255,%geta(mmix_user_shadow_active)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_SHADOW
 	SETL r254,1
 	STOU r254,r255,0
 	SYNC 6
 	LDOU r255,r231,USER_USER_TOP
 	UNSAVE r255
 	/* Only trusted resident state selects return metadata after UNSAVE. */
-	GETA r255,%geta(mmix_active_user)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_USER
 	LDOU r255,r255,0
 	SETL r254,USER_REGS+PT_R_WW
 	LDOU r253,r255,r254
@@ -38,14 +39,14 @@ mmix_user_run:
 	SETL r254,USER_REGS+PT_REGS+255*8
 	LDOU r253,r255,r254
 	PUT rBB,r253
-	GETA r254,%geta(mmix_user_shadow_active)
+	MMIX_CPU_PTR r254,MMIX_CPU_VECTOR_SHADOW
 	SETL r253,0
 	STOU r253,r254,0
 	/* Kernel translations must not survive the privilege boundary. */
 	SYNC 6
 	SETMH r253,0xff
 	ORL r253,256
-	GETA r254,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r254,MMIX_CPU_VECTOR_IRQ
 	STOU r253,r254,0
 	SETL r254,USER_REGS+PT_REGS+230*8
 	LDOU r230,r255,r254
@@ -103,7 +104,7 @@ mmix_user_run:
 
 .globl mmix_user_capture_entry
 mmix_user_capture_entry:
-	GETA r252,%geta(mmix_active_user)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_USER
 	LDOU r252,r252,0
 	BZ r252,mmix_exception_fatal
 	/* Validate every address before installing the private SAVE window. */
@@ -147,7 +148,7 @@ mmix_user_capture_entry:
 	SRU r254,r254,13
 	SLU r254,r254,13
 	STOU r254,r252,USER_SHADOW_END
-	GETA r255,%geta(mmix_user_shadow_active)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_SHADOW
 	SETL r254,1
 	STOU r254,r255,0
 	SYNC 6
@@ -159,11 +160,11 @@ mmix_user_capture_entry:
 	SETMH r255,0xe4
 	PUT rK,r255
 	SAVE r254
-	GETA r252,%geta(mmix_active_user)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_USER
 	LDOU r252,r252,0
 	STOU r254,r252,USER_USER_TOP
 	/* Detach the complete trap frame before C or nested interrupts. */
-	GETA r253,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r253,MMIX_CPU_VECTOR_ENTRY
 	SETL r254,ENTRY_REGS
 	ADDU r253,r253,r254
 	SETL r254,USER_REGS
@@ -181,7 +182,7 @@ mmix_user_capture_entry:
 .globl mmix_user_invalid_entry
 mmix_user_invalid_entry:
 	/* Only r255 is guaranteed global for an ABI-violating rG. */
-	GETA r255,%geta(mmix_active_user)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_USER
 	LDOU r255,r255,0
 	BZ r255,mmix_exception_fatal
 	STOU r255,r255,USER_ERROR
@@ -194,24 +195,26 @@ mmix_user_invalid_entry:
 	SETMH r253,0xff
 	ANDN r254,r254,r253
 	PUT rQ,r254
-	GETA r255,%geta(mmix_active_user)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_USER
 	LDOU r251,r255,0
 	SETL r254,0
 	STOU r254,r255,0
-	GETA r255,%geta(mmix_user_shadow_active)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_SHADOW
 	STOU r254,r255,0
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	STOU r254,r255,ENTRY_BUSY
-	GETA r255,%geta(mmix_mmu_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_MMU
 	STOU r254,r255,MMU_BUSY
 	SYNC 6
-	GETA r255,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_IRQ
 	SETMH r254,0xe4
 	STOU r254,r255,0
 	PUT rK,r254
 	LDOU r255,r251,USER_KERNEL_SAVE
 	UNSAVE r255
-	LDOU r255,r1,USER_KERNEL_C
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_CONT
+	ANDNH r255,0x8000
+	ORL r255,6
 	PUT rC,r255
 	OR r231,r1,0
 	PUSHJ r31,mmix_user_dispatch
@@ -219,7 +222,9 @@ mmix_user_invalid_entry:
 	OR r231,r1,0
 	JMPB .Lsave_kernel
 .Ldone:
-	LDOU r255,r1,USER_KERNEL_C
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_CONT
+	ANDNH r255,0x8000
+	ORL r255,6
 	PUT rC,r255
 	PUT rJ,r0
 	POP 0,0

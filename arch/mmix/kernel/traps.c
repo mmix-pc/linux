@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include "cpu_local.h"
 #include <linux/extable.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -12,14 +13,12 @@
 #include "../mm/fault.h"
 
 #ifdef CONFIG_MMIX_BOOT_TEST
-static struct mmix_fault_sample last_fault;
-
 void mmix_boot_fault_sample(struct mmix_fault_sample *sample)
 {
 	unsigned long flags;
 
 	local_irq_save(flags);
-	*sample = last_fault;
+	*sample = mmix_this_cpu()->last_fault;
 	local_irq_restore(flags);
 }
 #endif
@@ -32,10 +31,10 @@ int fixup_exception(struct pt_regs *regs)
 	if (!fixup || (long)fixup->fixup >= 0 || (fixup->fixup & 3))
 		return 0;
 #ifdef CONFIG_MMIX_BOOT_TEST
-	last_fault.address = regs->r_yy;
-	last_fault.cause = regs->r_xx;
-	last_fault.pc = regs->pc;
-	last_fault.count++;
+	mmix_this_cpu()->last_fault.address = regs->r_yy;
+	mmix_this_cpu()->last_fault.cause = regs->r_xx;
+	mmix_this_cpu()->last_fault.pc = regs->pc;
+	mmix_this_cpu()->last_fault.count++;
 #endif
 	regs->pc = fixup->fixup;
 	regs->r_ww = fixup->fixup;
@@ -69,10 +68,12 @@ void mmix_exception_finish(struct mmix_entry_state *entry, struct pt_regs *regs)
 	unsigned long rv;
 
 	local_irq_disable();
+	/* A detached frame may have slept or migrated since initial capture. */
+	entry = &mmix_this_cpu()->entry;
 	WRITE_ONCE(entry->busy, 1);
 	asm volatile("GET %0,rV" : "=r" (rv));
-	if (mmix_mmu_state.root != (pgd_t *)regs->root || rv != regs->r_v) {
-		WRITE_ONCE(mmix_mmu_state.root, (pgd_t *)regs->root);
+	if (mmix_this_cpu()->mmu.root != (pgd_t *)regs->root || rv != regs->r_v) {
+		WRITE_ONCE(mmix_this_cpu()->mmu.root, (pgd_t *)regs->root);
 		asm volatile("PUT rV,%0" : : "r" (regs->r_v) : "memory");
 		flush_tlb_all();
 	}

@@ -10,15 +10,14 @@
 #define MMIX_INIT_RSTACK_END (MMIX_INIT_RSTACK_BASE + MMIX_RSTACK_SIZE)
 #define MMIX_RV_SOFTWARE ((13UL << 40) | 1)
 
-/* UP-only resident state, shared exclusively with the stackless refill entry. */
+/* CPU-resident state, shared exclusively with that CPU's stackless refill. */
 struct mmix_mmu_state {
 	unsigned long globals[15]; /* Scratch registers 240-254. */
 	unsigned long busy;
-	pgd_t *root; /* Shared kernel vmalloc root. */
+	pgd_t *root; /* Local selector for shared kernel tables. */
 	pgd_t *user_root; /* Active user root; NULL for init_mm. */
 	unsigned long ram_end;
 };
-extern struct mmix_mmu_state mmix_mmu_state;
 void mmix_refill(void);
 void __noreturn mmix_enter_kernel(unsigned long seed);
 #endif

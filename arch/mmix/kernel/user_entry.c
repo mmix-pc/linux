@@ -12,9 +12,6 @@
 #include "signal.h"
 #include "../mm/fault.h"
 
-struct mmix_user_entry *mmix_active_user;
-unsigned long mmix_user_shadow_active;
-
 #ifdef CONFIG_MMIX_USER_TEST
 static atomic_t entry_fail_step = ATOMIC_INIT(-1);
 

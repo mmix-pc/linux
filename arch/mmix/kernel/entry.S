@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <generated/asm-offsets.h>
+#include <asm/cpu_local.h>
 .text
 .balign 4
 .globl mmix_exception_entry
@@ -7,10 +8,10 @@ mmix_exception_entry:
 	GET r255,rG
 	CMPU r255,r255,230
 	BNZ r255,mmix_user_invalid_entry
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	LDOU r255,r255,ENTRY_BUSY
 	BNZ r255,mmix_exception_fatal
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	STOU r254,r255,0
 	SETL r254,ENTRY_REGS+PT_REGS+253*8
 	STOU r253,r255,r254
@@ -141,17 +142,17 @@ mmix_exception_entry:
 	GET r253,rBB
 	SETL r254,ENTRY_REGS+PT_REGS+255*8
 	STOU r253,r255,r254
-	GETA r252,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_IRQ
 	LDOU r253,r252,0
 	SETL r254,ENTRY_REGS+PT_MASK
 	STOU r253,r255,r254
 	SETMH r253,0xe4
 	STOU r253,r252,0
-	GETA r252,%geta(mmix_mmu_state)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_MMU
 	LDOU r253,r252,MMU_ROOT
 	SETL r254,ENTRY_REGS+PT_ROOT
 	STOU r253,r255,r254
-	GETA r252,%geta(mmix_active_user)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_USER
 	LDOU r252,r252,0
 	BNZ r252,mmix_user_capture_entry
 	GET r253,rG
@@ -203,7 +204,7 @@ mmix_exception_entry:
 	SETMH r253,0xe4
 	PUT rK,r253
 	SAVE r254
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	SETL r253,ENTRY_REGS+PT_SAVE
 	STOU r254,r255,r253
 	SETL r253,ENTRY_REGS+PT_REGS+254*8
@@ -214,11 +215,11 @@ mmix_exception_entry:
 	OR r231,r255,0
 	PUSHJ r31,mmix_exception_dispatch
 	PUT rK,0
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	SETL r253,ENTRY_REGS+PT_SAVE
 	LDOU r254,r255,r253
 	UNSAVE r254
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	SETL r254,ENTRY_REGS+PT_R_WW
 	LDOU r253,r255,r254
 	PUT rWW,r253
@@ -236,7 +237,7 @@ mmix_exception_entry:
 	PUT rBB,r253
 	SETL r254,ENTRY_REGS+PT_MASK
 	LDOU r253,r255,r254
-	GETA r252,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r252,MMIX_CPU_VECTOR_IRQ
 	STOU r253,r252,0
 	SETL r253,0
 	STOU r253,r255,ENTRY_BUSY
@@ -290,17 +291,17 @@ mmix_exception_entry:
 	LDOU r253,r255,r254
 	SETL r254,ENTRY_REGS+PT_REGS+254*8
 	LDOU r254,r255,r254
-	GETA r255,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_IRQ
 	LDOU r255,r255,0
 	RESUME 1
 /* Fatal output never needs either stack, C, or a recoverable translation. */
 .globl mmix_exception_fatal
 mmix_exception_fatal:
 	PUT rK,0
+	MMIX_CPU_PTR r240,MMIX_CPU_VECTOR_ENTRY
 	GETA r255,%geta(mmix_boot_halt)
 	PUT rT,r255
 	PUT rTT,r255
-	GETA r240,%geta(mmix_entry_state)
 	GET r253,rWW
 	SETL r254,ENTRY_FAULT_PC
 	STOU r253,r240,r254
@@ -386,19 +387,3 @@ mmix_exception_fatal:
 	.short ENTRY_REGS+PT_R_YY, ENTRY_REGS+PT_R_ZZ
 	.short ENTRY_REGS+PT_REGS+254*8, ENTRY_REGS+PT_R_O, ENTRY_REGS+PT_R_S
 	.short ENTRY_FAULT_PC, ENTRY_FAULT_VA
-
-.bss
-.balign 8
-.globl mmix_entry_state
-mmix_entry_state:
-	.space ENTRY_SIZE
-.balign 8192
-.globl mmix_continuation_page
-mmix_continuation_page:
-	.space 8192
-/* Reserved independent emergency storage; the current fatal path is stackless. */
-.balign 8192
-mmix_emergency_stack:
-	.space 32768
-mmix_emergency_rstack:
-	.space 32768

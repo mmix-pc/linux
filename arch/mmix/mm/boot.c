@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include "../kernel/cpu_local.h"
 #include <linux/init_task.h>
 #include <linux/sched.h>
 #include <asm/boot.h>
@@ -12,7 +13,6 @@ static pmd_t boot_pmd[PTRS_PER_PMD] __aligned(PAGE_SIZE);
 static pte_t boot_pte[PTRS_PER_PTE] __aligned(PAGE_SIZE);
 static unsigned long init_rstack[MMIX_RSTACK_SIZE / sizeof(unsigned long)]
 	__aligned(PAGE_SIZE);
-struct mmix_mmu_state mmix_mmu_state;
 
 void __init __noreturn mmix_boot_mmu(void)
 {
@@ -38,14 +38,14 @@ void __init __noreturn mmix_boot_mmu(void)
 	init_task.stack = (void *)MMIX_INIT_STACK_BASE;
 	init_task.thread.rstack_base = MMIX_INIT_RSTACK_BASE;
 	init_task.thread.rstack_limit = MMIX_INIT_RSTACK_END;
-	mmix_mmu_state.root = swapper_pg_dir;
-	mmix_mmu_state.ram_end = boot->ram_size;
+	mmix_this_cpu()->mmu.root = swapper_pg_dir;
+	mmix_this_cpu()->mmu.ram_end = boot->ram_size;
 	/* Publish the tables and refill state before enabling translation. */
 	mb();
 	asm volatile("PUT rT,%0\n\tPUT rV,%1\n\tPUT rTT,%2\n\tPUT rC,%3\n\tSYNC 6"
-		     : : "r" (mmix_refill), "r" (MMIX_RV_SOFTWARE),
-		     "r" (mmix_exception_entry),
-		     "r" (__pa(mmix_continuation_page) | 6) : "memory");
+		     : : "r" (mmix_cpu_vectors), "r" (MMIX_RV_SOFTWARE),
+		     "r" (mmix_cpu_vectors + 4),
+		     "r" (__pa(mmix_this_cpu()->continuation) | 6) : "memory");
 	mmix_enter_kernel(MMIX_INIT_RSTACK_BASE +
 			  (1 + 256 - MMIX_BOOT_RG + 12) * sizeof(unsigned long));
 }

@@ -4,7 +4,7 @@
 
 #include <asm/ptrace.h>
 
-/* Resident UP capture slot; detached frames live on the task software stack. */
+/* CPU-resident capture slot; detached frames live on the task software stack. */
 struct mmix_entry_state {
 	unsigned long busy;
 	unsigned long phase;
@@ -12,8 +12,6 @@ struct mmix_entry_state {
 	unsigned long fault_pc;
 	unsigned long fault_va;
 };
-extern struct mmix_entry_state mmix_entry_state;
-extern unsigned char mmix_continuation_page[];
 void mmix_exception_entry(void);
 void mmix_exception_prepare(struct mmix_entry_state *entry, struct pt_regs *regs);
 void mmix_exception_finish(struct mmix_entry_state *entry, struct pt_regs *regs);

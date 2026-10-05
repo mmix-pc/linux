@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 extra-y += vmlinux.lds
-obj-y += irqflags.o
+obj-y += cpu_local.o cpu_vectors.o
 obj-y += head.o early.o setup.o
 obj-y += entry.o traps.o irq.o
 obj-y += process.o switch.o vfork.o

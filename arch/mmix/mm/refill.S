@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <generated/asm-offsets.h>
+#include <asm/cpu_local.h>
 
 .text
 .balign 4
@@ -8,10 +9,10 @@ mmix_refill:
 	GET r255,rG
 	CMPU r255,r255,230
 	BNZ r255,mmix_user_invalid_entry
-	GETA r255,%geta(mmix_mmu_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_MMU
 	LDOU r255,r255,MMU_BUSY
 	BNZ r255,.Lfatal_early
-	GETA r255,%geta(mmix_mmu_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_MMU
 	STOU r240,r255,MMU_GLOBALS+0
 	STOU r241,r255,MMU_GLOBALS+8
 	STOU r242,r255,MMU_GLOBALS+16
@@ -35,7 +36,7 @@ mmix_refill:
 	CMPU r240,r240,r241
 	BNZ r240,.Lordinary
 	GET r240,rYY
-	GETA r241,%geta(mmix_user_shadow_active)
+	MMIX_CPU_PTR r241,MMIX_CPU_VECTOR_SHADOW
 	LDOU r241,r241,0
 	BNZ r241,.Lshadow
 	SRU r241,r240,43
@@ -44,7 +45,7 @@ mmix_refill:
 	SUBU r240,r240,r241
 	SRU r241,r240,43
 	BNZ r241,.Lfatal
-	GETA r242,%geta(mmix_active_user)
+	MMIX_CPU_PTR r242,MMIX_CPU_VECTOR_USER
 	LDOU r242,r242,0
 	BZ r242,1f
 	GET r242,rWW
@@ -141,13 +142,13 @@ mmix_refill:
 	LDOU r252,r255,MMU_GLOBALS+96
 	LDOU r253,r255,MMU_GLOBALS+104
 	LDOU r254,r255,MMU_GLOBALS+112
-	GETA r255,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_IRQ
 	LDOU r255,r255,0
 	RESUME 1
 .Lshadow:
 	GET r241,rWW
 	BNN r241,.Lfatal
-	GETA r242,%geta(mmix_active_user)
+	MMIX_CPU_PTR r242,MMIX_CPU_VECTOR_USER
 	LDOU r242,r242,0
 	BZ r242,.Lfatal
 	LDOU r243,r242,USER_SHADOW_BASE
@@ -164,7 +165,7 @@ mmix_refill:
 	ORL r248,6
 	JMPB .Ltranslated
 .Lmissing:
-	GETA r240,%geta(mmix_active_user)
+	MMIX_CPU_PTR r240,MMIX_CPU_VECTOR_USER
 	LDOU r240,r240,0
 	BNZ r240,.Lordinary
 	/* Only explicit data accesses with intact current stacks may use fixups. */
@@ -217,7 +218,7 @@ mmix_refill:
 	GETA r255,%geta(mmix_exception_entry)
 	GO r255,r255,0
 .Lfatal:
-	GETA r240,%geta(mmix_active_user)
+	MMIX_CPU_PTR r240,MMIX_CPU_VECTOR_USER
 	LDOU r240,r240,0
 	BNZB r240,.Lordinary
 	LDOU r240,r255,MMU_GLOBALS+0
@@ -235,7 +236,7 @@ mmix_refill:
 	LDOU r252,r255,MMU_GLOBALS+96
 	LDOU r253,r255,MMU_GLOBALS+104
 	LDOU r254,r255,MMU_GLOBALS+112
-	GETA r255,%geta(mmix_entry_state)
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_ENTRY
 	LDOU r255,r255,ENTRY_BUSY
 	BNZ r255,mmix_exception_fatal
 	GETA r255,%geta(mmix_boot_trap)

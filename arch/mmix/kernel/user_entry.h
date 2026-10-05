@@ -41,9 +41,6 @@ struct mmix_user_entry {
 	enum mmix_user_event event;
 };
 
-/* Resident UP selectors; a user-controlled register never selects this storage. */
-extern struct mmix_user_entry *mmix_active_user;
-extern unsigned long mmix_user_shadow_active;
 int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user_entry_ops *ops,
 		    void *data);
 int mmix_user_syscall(struct mmix_user_entry *entry, void *data);

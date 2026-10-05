@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <asm/boot.h>
+#include <asm/cpu_local.h>
 #include <generated/asm-offsets.h>
 
 /* QEMU Linux handoff: $0 = CPU ID, $1 = physical FDT, rK = 0. */
@@ -46,9 +47,11 @@ mmix_head:
 	GETA r230,%geta(init_task)
 	GETA r254,%geta(mmix_boot_stack_end)
 	SETL r253,0
+	GETA r255,%geta(mmix_cpu_vectors)
+	PUT rT,r255
 	/* Negative direct aliases are safe before software translation exists. */
 	SETMH r255,0xe4
-	GETA r251,%geta(mmix_kernel_irq_mask)
+	MMIX_CPU_PTR r251,MMIX_CPU_VECTOR_IRQ
 	STOU r255,r251,0
 	PUT rK,r255
 	PUSHJ r31,mmix_early_boot

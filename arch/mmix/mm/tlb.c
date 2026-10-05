@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include "../kernel/cpu_local.h"
 #include <linux/irqflags.h>
 #include <linux/mm.h>
 #include <asm/cacheflush.h>
@@ -57,7 +58,7 @@ void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	unsigned long flags;
 
 	local_irq_save(flags);
-	WRITE_ONCE(mmix_mmu_state.user_root,
+	WRITE_ONCE(mmix_this_cpu()->mmu.user_root,
 		   next == &init_mm ? NULL : next->pgd);
 	flush_tlb_all();
 	local_irq_restore(flags);

@@ -3,12 +3,12 @@
 #define _ASM_MMIX_IRQFLAGS_H
 
 #include <linux/types.h>
+#include <asm/cpu_local.h>
 
 #define MMIX_IRQ_CONTROLLER	(1UL << 8)
 #define MMIX_KERNEL_FAULT_MASK	(0xe4UL << 32)
 
-/* UP entry code snapshots this before publishing the handler's mask. */
-extern unsigned long mmix_kernel_irq_mask;
+/* The directly mapped shadow belongs to the invoking CPU. */
 
 static inline unsigned long arch_local_save_flags(void)
 {
@@ -20,11 +20,13 @@ static inline unsigned long arch_local_save_flags(void)
 
 static inline void arch_local_irq_restore(unsigned long flags)
 {
-	/* The shadow must be resident and directly mapped before enabling IRQs. */
+	unsigned long *mask;
+
+	/* Select the local shadow only after IRQs prevent migration. */
 	asm volatile("PUT rK,0\n\t"
-		     "STOU %0,%1,0\n\t"
-		     "PUT rK,%0"
-		     :: "r" (flags), "r" (&mmix_kernel_irq_mask) : "memory");
+		     "GET %0,rT\n\tLDOU %0,%0,32\n\t"
+		     "STOU %1,%0,0\n\tPUT rK,%1"
+		     : "=&r" (mask) : "r" (flags) : "memory");
 }
 
 static inline void arch_local_irq_disable(void)

@@ -13,6 +13,9 @@ struct thread_info {
 	unsigned long flags;
 	unsigned long syscall_work;
 	int preempt_count;
+#ifdef CONFIG_SMP
+	unsigned int cpu;
+#endif
 };
 #define INIT_THREAD_INFO(tsk) { .preempt_count = INIT_PREEMPT_COUNT }
 #endif

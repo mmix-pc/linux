@@ -5,6 +5,7 @@
 #include <linux/of_irq.h>
 #include <linux/sched_clock.h>
 #include <asm/io.h>
+#include <asm/boot.h>
 #include "irq.h"
 #include "time.h"
 
@@ -232,11 +233,12 @@ void __init time_init(void)
 	if (!node || !of_device_is_available(node) ||
 	    of_property_read_u32(node, "clock-frequency", &rate) ||
 	    rate != MMIX_TIMER_RATE ||
-	    of_property_read_u32(node, "qemu,context-count", &count) || count != 1 ||
+	    of_property_read_u32(node, "qemu,context-count", &count) ||
+	    count != mmix_get_boot_info()->nr_cpus ||
 	    of_property_read_u32(node, "qemu,context-stride", &stride) || stride != 0x10000 ||
 	    of_address_to_resource(node, 0, &counter) || resource_size(&counter) < 8 ||
 	    of_address_to_resource(node, 1, &context) || resource_size(&context) < 24 ||
-	    of_irq_count(node) != 1 || ((counter.start | context.start) & 7))
+	    of_irq_count(node) != count || ((counter.start | context.start) & 7))
 		panic("MMIX: invalid timer description");
 	counter_base = ioremap(counter.start, resource_size(&counter));
 	context_base = ioremap(context.start, resource_size(&context));

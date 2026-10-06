@@ -8,6 +8,11 @@
 .balign 4
 .globl _start
 _start:
+	/* QEMU starts every CPU here, before CPU 0 has cleared shared BSS. */
+	BZ r0,.Lboot_cpu
+	GETA r255,%geta(mmix_secondary_start)
+	GO r255,r255,0
+.Lboot_cpu:
 	GETA r255,%geta(mmix_boot_handoff)
 	STOU r1,r255,BOOT_FDT
 	STOU r0,r255,BOOT_CPU
@@ -106,6 +111,11 @@ mmix_boot_trap:
 .globl mmix_boot_halt
 mmix_boot_halt:
 	PUT rK,0
+	GETA r255,%geta(mmix_secondary_abort)
+	SETL r254,1
+	SYNC 3
+	STOU r254,r255,0
+	SYNC 3
 6:
 	SWYM 0,0,0
 	JMPB 6b

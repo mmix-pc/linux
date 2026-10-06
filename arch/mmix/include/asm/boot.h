@@ -7,6 +7,7 @@
 #define MMIX_BOOT_RSTACK_SIZE	65536
 #define MMIX_BOOT_FDT_MAX		0x200000
 #define MMIX_BOOT_UART		0x8001000010000000
+#include <asm/cpu_local.h>
 
 #ifndef __ASSEMBLER__
 #include <linux/init.h>
@@ -21,6 +22,8 @@ struct mmix_boot_info {
 	unsigned long stack_base;
 	unsigned long stack_size;
 	unsigned long uart;
+	unsigned int nr_cpus;
+	unsigned long loader_stack[MMIX_BOOT_CPU_SLOTS];
 };
 
 /* Call only after mmix_early_boot has validated and published the information. */

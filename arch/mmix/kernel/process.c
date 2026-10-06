@@ -10,6 +10,7 @@
 #include <asm/current.h>
 #include <asm/rstack.h>
 #include <asm/irqflags.h>
+#include <asm/smp.h>
 #include "process.h"
 #include "user_entry.h"
 #include "signal.h"
@@ -308,6 +309,7 @@ void arch_cpu_idle(void)
 
 void machine_halt(void)
 {
+	mmix_smp_stop();
 	asm volatile("PUT rK,0" ::: "memory");
 	for (;;)
 		cpu_relax();

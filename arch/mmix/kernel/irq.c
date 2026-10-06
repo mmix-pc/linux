@@ -6,6 +6,7 @@
 #include <linux/irqdomain.h>
 #include <linux/of_address.h>
 #include <asm/io.h>
+#include <asm/boot.h>
 #include "irq.h"
 
 #define MMIX_INTC_SOURCES 8192
@@ -121,7 +122,8 @@ static int __init mmix_intc_init(struct device_node *node,
 	    of_property_read_u32(node, "qemu,source-count", &sources) ||
 	    of_property_read_u32(node, "qemu,context-count", &contexts) ||
 	    of_property_read_u32(node, "qemu,context-stride", &stride) ||
-	    sources != MMIX_INTC_SOURCES || contexts != 1 || stride != 0x10000 ||
+	    sources != MMIX_INTC_SOURCES ||
+	    contexts != mmix_get_boot_info()->nr_cpus || stride != 0x10000 ||
 	    of_address_to_resource(node, 0, &global) ||
 	    of_address_to_resource(node, 1, &context) ||
 	    resource_size(&global) < 16 || resource_size(&context) < 0x810)

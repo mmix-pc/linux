@@ -12,9 +12,22 @@
 #include "user_entry.h"
 #include "process.h"
 #include "cpu_local.h"
+#include "smp_boot.h"
 
 int main(void)
 {
+	DEFINE(SECONDARY_SIZE, sizeof(struct mmix_secondary_boot));
+#define SECONDARY_OFFSET(name, member) \
+	DEFINE(SECONDARY_##name, offsetof(struct mmix_secondary_boot, member))
+	SECONDARY_OFFSET(FDT, fdt);
+	SECONDARY_OFFSET(LOADER_RS, loader_rs);
+	SECONDARY_OFFSET(CLAIM, claim);
+	SECONDARY_OFFSET(RELEASE, release);
+	SECONDARY_OFFSET(STATUS, status);
+	SECONDARY_OFFSET(SEED, seed);
+	SECONDARY_OFFSET(VECTOR, vector);
+	SECONDARY_OFFSET(RC, r_c);
+	SECONDARY_OFFSET(CPU, cpu);
 	DEFINE(CPU_SIZE, sizeof(struct mmix_cpu_state));
 	DEFINE(CPU_ENTRY, offsetof(struct mmix_cpu_state, entry));
 	DEFINE(CPU_MMU, offsetof(struct mmix_cpu_state, mmu));

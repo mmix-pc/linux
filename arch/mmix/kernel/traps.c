@@ -9,6 +9,7 @@
 #include <asm/irq_regs.h>
 #include <asm/tlbflush.h>
 #include "entry.h"
+#include "ipi.h"
 #include "../mm/mmu.h"
 #include "../mm/fault.h"
 
@@ -54,7 +55,7 @@ void mmix_exception_prepare(struct mmix_entry_state *entry, struct pt_regs *regs
 	/* External IRQs save the next PC; synchronous causes name the prior insn. */
 	regs->pc = regs->r_ww;
 	if (regs->r_xx >> 32 == 0x03000000UL ||
-	    !(regs->r_q & regs->mask & MMIX_IRQ_CONTROLLER) ||
+	    !(regs->r_q & regs->mask & MMIX_IRQ_EXTERNAL) ||
 	    (regs->r_xx & MMIX_KERNEL_FAULT_MASK))
 		regs->pc -= 4;
 	for (i = 0; i < regs->r_l; i++)
@@ -99,10 +100,14 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 		if (mmix_handle_page_fault(regs) && !fixup_exception(regs))
 			mmix_exception_fatal();
 		mmix_ack_requests(pending & MMIX_KERNEL_FAULT_MASK);
-	} else if (pending & MMIX_IRQ_CONTROLLER) {
+	} else if (pending & MMIX_IRQ_EXTERNAL) {
 		irq_enter();
-		handle_arch_irq(regs);
-		mmix_ack_requests(MMIX_IRQ_CONTROLLER);
+		if (pending & MMIX_IRQ_IPI)
+			mmix_ipi_interrupt();
+		if (pending & MMIX_IRQ_CONTROLLER) {
+			handle_arch_irq(regs);
+			mmix_ack_requests(MMIX_IRQ_CONTROLLER);
+		}
 		/* The complete frame is now task-owned, including across softirqs. */
 		WRITE_ONCE(entry->busy, 0);
 		irq_exit();

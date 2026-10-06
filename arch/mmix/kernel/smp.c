@@ -6,6 +6,7 @@
 #include <asm/irqflags.h>
 #include "cpu_local.h"
 #include "smp_boot.h"
+#include "ipi.h"
 
 /* Bootstrap storage stays owned even if a CPU fails to acknowledge startup. */
 static unsigned char secondary_stacks[MMIX_BOOT_CPU_SLOTS][MMIX_BOOT_STACK_SIZE]
@@ -35,9 +36,11 @@ void __noreturn mmix_secondary_park(void)
 		       "=r" (boot->r_c) : : "memory");
 	/* Publish every observation before the boot CPU accepts this handshake. */
 	smp_store_release(&boot->status, MMIX_SECONDARY_PARKED);
+	mmix_ipi_cpu_start();
 	/* Acquire the stop request before publishing the terminal acknowledgement. */
 	while (!smp_load_acquire(&mmix_secondary_abort))
 		cpu_relax();
+	mmix_ipi_cpu_retire();
 	/* Only permanent bootstrap storage is accessed after this release. */
 	smp_store_release(&boot->status, MMIX_SECONDARY_STOPPED);
 	for (;;)
@@ -120,8 +123,13 @@ void mmix_smp_stop(void)
 
 	/* Every barrier and parked CPU polls this permanent release record. */
 	smp_store_release(&mmix_secondary_abort, 1);
-	for (cpu = 1; cpu < MMIX_BOOT_CPU_SLOTS; cpu++) {
-		if (!READ_ONCE(mmix_secondary_boot[cpu].claim))
+	for (cpu = 0; cpu < MMIX_BOOT_CPU_SLOTS; cpu++)
+		if (cpu != mmix_cpu_id())
+			mmix_ipi_send_stop(cpu);
+	mmix_ipi_cpu_retire();
+	for (cpu = 0; cpu < MMIX_BOOT_CPU_SLOTS; cpu++) {
+		if (cpu == mmix_cpu_id() ||
+		    (!READ_ONCE(mmix_secondary_boot[cpu].claim) && !cpu_online(cpu)))
 			continue;
 		for (attempt = 0; attempt < 1000000; attempt++) {
 			/* Acquire the terminal acknowledgement before accepting the stop. */
@@ -139,20 +147,4 @@ void mmix_smp_stop(void)
 void smp_send_stop(void)
 {
 	mmix_smp_stop();
-}
-
-void arch_smp_send_reschedule(int cpu)
-{
-	/* No remote CPU can become online at this preparation boundary. */
-	WARN_ON_ONCE(cpu_online(cpu) && cpu != smp_processor_id());
-}
-
-void arch_send_call_function_single_ipi(int cpu)
-{
-	WARN_ON_ONCE(cpu_online(cpu) && cpu != smp_processor_id());
-}
-
-void arch_send_call_function_ipi_mask(const struct cpumask *mask)
-{
-	WARN_ON_ONCE(cpumask_weight(cpu_online_mask) != 1);
 }

@@ -37,6 +37,16 @@ int main(void)
 	DEFINE(CPU_PREV, offsetof(struct mmix_cpu_state, switch_prev));
 	DEFINE(CPU_ID, offsetof(struct mmix_cpu_state, id));
 	DEFINE(CPU_CONT, offsetof(struct mmix_cpu_state, continuation));
+#define BOOT_IPI_OFFSET(name, member) \
+	DEFINE(BOOT_IPI_##name, offsetof(struct mmix_cpu_state, boot_ipi.member))
+	BOOT_IPI_OFFSET(R253, r253);
+	BOOT_IPI_OFFSET(SP, sp);
+	BOOT_IPI_OFFSET(WW, r_ww);
+	BOOT_IPI_OFFSET(XX, r_xx);
+	BOOT_IPI_OFFSET(YY, r_yy);
+	BOOT_IPI_OFFSET(ZZ, r_zz);
+	BOOT_IPI_OFFSET(BB, r_bb);
+	BOOT_IPI_OFFSET(SAVE, save);
 	DEFINE(TASK_THREAD, offsetof(struct task_struct, thread));
 	DEFINE(PT_PC, offsetof(struct pt_regs, pc));
 	DEFINE(PT_MASK, offsetof(struct pt_regs, mask));

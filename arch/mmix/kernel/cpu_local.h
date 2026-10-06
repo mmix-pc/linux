@@ -9,7 +9,13 @@
 struct mmix_user_entry;
 struct task_struct;
 
+struct mmix_boot_ipi_regs {
+	unsigned long r253, sp, r_ww, r_xx, r_yy, r_zz, r_bb, save;
+};
+
 struct mmix_cpu_state {
+	/* The stackless boot IPI entry needs immediate-offset access using r255. */
+	struct mmix_boot_ipi_regs boot_ipi;
 	struct mmix_entry_state entry;
 	struct mmix_mmu_state mmu;
 	struct mmix_user_entry *active_user;

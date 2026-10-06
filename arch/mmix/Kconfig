@@ -66,6 +66,15 @@ config NR_CPUS
 	default 4 if SMP
 	default 1
 
+config MMIX_SMP_KERNEL
+	bool "MMIX kernel-only multiprocessor scheduling"
+	depends on SMP
+	help
+	  Bring prepared CPUs online with normal idle tasks and local clock
+	  events. This staged mode admits kernel work only; native userspace
+	  entry remains unavailable until remote MMU and ownership work is
+	  qualified. Leave disabled for preparation-only or UP profiles.
+
 source "kernel/Kconfig.hz"
 
 config MMIX_THREAD_ENTRY

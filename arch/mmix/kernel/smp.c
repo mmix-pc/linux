@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/cpu.h>
+#include <linux/completion.h>
+#include <linux/sched.h>
+#include <linux/mm.h>
+#include <asm/tlbflush.h>
 #include <linux/init_task.h>
 #include <linux/smp.h>
 #include <asm/boot.h>
@@ -7,6 +11,10 @@
 #include "cpu_local.h"
 #include "smp_boot.h"
 #include "ipi.h"
+#include "time.h"
+
+static unsigned long secondary_launch[MMIX_BOOT_CPU_SLOTS];
+static DECLARE_COMPLETION(secondary_running);
 
 /* Bootstrap storage stays owned even if a CPU fails to acknowledge startup. */
 static unsigned char secondary_stacks[MMIX_BOOT_CPU_SLOTS][MMIX_BOOT_STACK_SIZE]
@@ -37,9 +45,15 @@ void __noreturn mmix_secondary_park(void)
 	/* Publish every observation before the boot CPU accepts this handshake. */
 	smp_store_release(&boot->status, MMIX_SECONDARY_PARKED);
 	mmix_ipi_cpu_start();
-	/* Acquire the stop request before publishing the terminal acknowledgement. */
-	while (!smp_load_acquire(&mmix_secondary_abort))
+	/* Acquire each stop request before leaving permanent bootstrap storage. */
+	while (!smp_load_acquire(&mmix_secondary_abort)) {
+		/* Acquire the idle task's complete kernel context before leaving parking. */
+		unsigned long seed = smp_load_acquire(&secondary_launch[boot->cpu]);
+
+		if (seed)
+			mmix_enter_secondary(seed);
 		cpu_relax();
+	}
 	mmix_ipi_cpu_retire();
 	/* Only permanent bootstrap storage is accessed after this release. */
 	smp_store_release(&boot->status, MMIX_SECONDARY_STOPPED);
@@ -106,15 +120,48 @@ fail:
 	panic("MMIX: secondary CPU %u startup failed", cpu);
 }
 
+void __noreturn mmix_secondary_main(void)
+{
+	unsigned int cpu = mmix_cpu_id();
+
+	arch_local_irq_restore(MMIX_KERNEL_FAULT_MASK);
+	current->thread.started = 1;
+	mmgrab(&init_mm);
+	current->active_mm = &init_mm;
+	cpumask_set_cpu(cpu, mm_cpumask(&init_mm));
+	notify_cpu_starting(cpu);
+	mmix_timer_cpu_start();
+	flush_tlb_all();
+	mmix_ipi_flush_poll();
+	set_cpu_online(cpu, true);
+	complete(&secondary_running);
+	local_irq_enable();
+	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
+}
+
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
-	/* IRQ, timer and remote MMU services must precede ordinary CPU admission. */
-	return -EOPNOTSUPP;
+	if (!IS_ENABLED(CONFIG_MMIX_SMP_KERNEL))
+		return -EOPNOTSUPP;
+	if (cpu >= MMIX_BOOT_CPU_SLOTS || !cpu_present(cpu) ||
+	    !mmix_ipi_ready(cpu) || cpu_online(cpu))
+		return -EINVAL;
+	reinit_completion(&secondary_running);
+	/* The generic idle thread owns its guarded stack and scheduler backing. */
+	smp_store_release(&secondary_launch[cpu], idle->thread.save);
+	mmix_ipi_kick(BIT(cpu));
+	if (!wait_for_completion_timeout(&secondary_running, msecs_to_jiffies(5000))) {
+		mmix_smp_stop();
+		panic("MMIX: CPU %u online startup timed out", cpu);
+	}
+	return 0;
 }
 
 void __init smp_cpus_done(unsigned int max_cpus)
 {
-	pr_info("MMIX: secondary scheduling disabled; %u CPU online\n", num_online_cpus());
+	pr_info("MMIX: %s; %u CPU online\n",
+		IS_ENABLED(CONFIG_MMIX_SMP_KERNEL) ? "kernel scheduling ready" :
+		"secondary scheduling disabled", num_online_cpus());
 }
 
 void mmix_smp_stop(void)

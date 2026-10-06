@@ -7,6 +7,7 @@
 #include <asm/rstack.h>
 #include <asm/tlbflush.h>
 #include "mmu.h"
+#include "../kernel/ipi.h"
 
 void flush_tlb_all(void)
 {
@@ -31,7 +32,11 @@ void flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 
 void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
+#ifdef CONFIG_MMIX_SMP_KERNEL
+	mmix_ipi_flush_kernel();
+#else
 	flush_tlb_all();
+#endif
 }
 
 void update_mmu_cache_range(struct vm_fault *vmf, struct vm_area_struct *vma,

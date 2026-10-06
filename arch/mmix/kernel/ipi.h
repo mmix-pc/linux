@@ -27,6 +27,8 @@ int mmix_ipi_call(unsigned int cpu, struct mmix_ipi_work *work);
 int mmix_ipi_queue(unsigned int cpu, struct mmix_ipi_work *work);
 void mmix_ipi_kick(unsigned long targets);
 bool mmix_ipi_ready(unsigned int cpu);
+void mmix_ipi_flush_kernel(void);
+void mmix_ipi_flush_poll(void);
 #else
 static inline void mmix_ipi_init(void) { }
 static inline void mmix_ipi_interrupt(void) { }

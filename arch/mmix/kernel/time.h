@@ -14,7 +14,11 @@ struct mmix_timer {
 	void __iomem *context;
 	struct clocksource source;
 	struct clock_event_device event;
+	unsigned long interrupts;
+	unsigned int cpu;
 };
+
+void mmix_timer_cpu_start(void);
 
 /* The platform comparator and QEMU deadlines use nonnegative signed time. */
 static inline int mmix_timer_deadline(u64 now, unsigned long delta, u64 *deadline)

@@ -4,6 +4,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/sched_clock.h>
+#include <linux/smp.h>
 #include <asm/io.h>
 #include <asm/boot.h>
 #include "irq.h"
@@ -16,7 +17,8 @@
 #define MMIX_TIMER_IRQ_ENABLE BIT_ULL(1)
 #define MMIX_TIMER_PENDING BIT_ULL(0)
 
-static struct mmix_timer boot_timer;
+static struct mmix_timer timers[MMIX_BOOT_CPU_SLOTS];
+#define boot_timer timers[0]
 #ifdef CONFIG_MMIX_BOOT_TEST
 static unsigned long timer_irqs;
 static bool drop_events;
@@ -94,6 +96,7 @@ irqreturn_t mmix_timer_interrupt(int irq, void *data)
 	if (!(ioread64be(timer->context + MMIX_TIMER_STATUS) & MMIX_TIMER_PENDING))
 		return IRQ_NONE;
 	mmix_timer_shutdown(&timer->event);
+	timer->interrupts++;
 	/* Generic IRQ EOI follows this callback, after device quiescence. */
 #ifdef CONFIG_MMIX_BOOT_TEST
 	timer_irqs++;
@@ -128,6 +131,14 @@ void mmix_timer_setup(struct mmix_timer *timer, void __iomem *counter,
 		.cpumask = cpumask_of(0),
 	};
 	mmix_timer_shutdown(&timer->event);
+}
+
+void mmix_timer_cpu_start(void)
+{
+	struct mmix_timer *timer = &timers[mmix_cpu_id()];
+
+	clockevents_config_and_register(&timer->event, MMIX_TIMER_RATE,
+					MMIX_TIMER_MIN_DELTA, MMIX_TIMER_MAX_DELTA);
 }
 
 #ifdef CONFIG_MMIX_BOOT_TEST
@@ -228,6 +239,7 @@ void __init time_init(void)
 	void __iomem *counter_base, *context_base;
 	u32 rate, count, stride;
 	int irq, err;
+	unsigned int cpu;
 
 	node = of_find_compatible_node(NULL, NULL, "qemu,mmix-timer");
 	if (!node || !of_device_is_available(node) ||
@@ -237,24 +249,30 @@ void __init time_init(void)
 	    count != mmix_get_boot_info()->nr_cpus ||
 	    of_property_read_u32(node, "qemu,context-stride", &stride) || stride != 0x10000 ||
 	    of_address_to_resource(node, 0, &counter) || resource_size(&counter) < 8 ||
-	    of_address_to_resource(node, 1, &context) || resource_size(&context) < 24 ||
+	    of_address_to_resource(node, 1, &context) || resource_size(&context) < count * stride ||
 	    of_irq_count(node) != count || ((counter.start | context.start) & 7))
 		panic("MMIX: invalid timer description");
 	counter_base = ioremap(counter.start, resource_size(&counter));
-	context_base = ioremap(context.start, resource_size(&context));
-	irq = irq_of_parse_and_map(node, 0);
+	for (cpu = 0; cpu < count; cpu++) {
+		struct mmix_timer *timer = &timers[cpu];
+
+		context_base = ioremap(context.start + cpu * stride, stride);
+		irq = irq_of_parse_and_map(node, cpu);
+		if (!counter_base || !context_base || !irq)
+			panic("MMIX: timer resources unavailable");
+		mmix_timer_setup(timer, counter_base, context_base);
+		timer->cpu = cpu;
+		timer->event.cpumask = cpumask_of(cpu);
+		timer->event.irq = irq;
+		err = request_irq(irq, mmix_timer_interrupt, IRQF_TIMER | IRQF_NOBALANCING,
+				  "mmix-virt", timer);
+		if (err)
+			panic("MMIX: timer IRQ registration failed: %d", err);
+	}
 	of_node_put(node);
-	if (!counter_base || !context_base || !irq)
-		panic("MMIX: timer resources unavailable");
-	mmix_timer_setup(&boot_timer, counter_base, context_base);
-	boot_timer.event.irq = irq;
-	err = request_irq(irq, mmix_timer_interrupt, IRQF_TIMER, "mmix-virt", &boot_timer);
-	if (err)
-		panic("MMIX: timer IRQ registration failed: %d", err);
 	err = clocksource_register_hz(&boot_timer.source, rate);
 	if (err)
 		panic("MMIX: clocksource registration failed: %d", err);
 	sched_clock_register(mmix_sched_clock_read, 64, rate);
-	clockevents_config_and_register(&boot_timer.event, rate,
-					MMIX_TIMER_MIN_DELTA, MMIX_TIMER_MAX_DELTA);
+	mmix_timer_cpu_start();
 }

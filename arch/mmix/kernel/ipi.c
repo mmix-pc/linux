@@ -2,6 +2,7 @@
 #include <linux/errno.h>
 #include <linux/of_address.h>
 #include <linux/smp.h>
+#include <linux/timekeeping.h>
 #include <asm/boot.h>
 #include <asm/io.h>
 #include <asm/irqflags.h>
@@ -12,6 +13,7 @@
 #define IPI_RESCHEDULE BIT(0)
 #define IPI_CALL BIT(1)
 #define IPI_STOP BIT(2)
+#define IPI_KERNEL_FLUSH BIT(3)
 #define WORK_IDLE 0UL
 #define WORK_QUEUED 1UL
 #define WORK_DONE 2UL
@@ -26,6 +28,64 @@ static struct mmix_ipi_state ipi_state[MMIX_BOOT_CPU_SLOTS];
 static void __iomem *ipi_global;
 static void __iomem *ipi_context[MMIX_BOOT_CPU_SLOTS];
 static unsigned int ipi_cpus;
+
+struct kernel_flush_request {
+	unsigned long request, ack;
+};
+
+static struct kernel_flush_request kernel_flush[MMIX_BOOT_CPU_SLOTS][MMIX_BOOT_CPU_SLOTS];
+static unsigned long kernel_flush_generation[MMIX_BOOT_CPU_SLOTS];
+
+void mmix_ipi_flush_poll(void)
+{
+	unsigned int cpu = mmix_cpu_id(), sender;
+
+	for (sender = 0; sender < ipi_cpus; sender++) {
+		struct kernel_flush_request *work = &kernel_flush[cpu][sender];
+		/* Acquire page-table publication before invalidating the local cache. */
+		unsigned long generation = smp_load_acquire(&work->request);
+
+		if (generation == READ_ONCE(work->ack))
+			continue;
+		asm volatile("SYNC 3\n\tSYNC 6" ::: "memory");
+		/* No caller can recycle mapping storage until this invalidation completes. */
+		smp_store_release(&work->ack, generation);
+	}
+}
+
+void mmix_ipi_flush_kernel(void)
+{
+	unsigned long flags, generation, targets = 0;
+	unsigned int cpu, self;
+
+	local_irq_save(flags);
+	self = mmix_cpu_id();
+	generation = ++kernel_flush_generation[self];
+	for_each_online_cpu(cpu) {
+		if (cpu == self)
+			continue;
+		/* Publish this sender's generation without serializing other senders. */
+		smp_store_release(&kernel_flush[cpu][self].request, generation);
+		atomic_long_or(IPI_KERNEL_FLUSH, &ipi_state[cpu].messages);
+		targets |= BIT(cpu);
+	}
+	mmix_ipi_kick(targets);
+	asm volatile("SYNC 3\n\tSYNC 6" ::: "memory");
+	for_each_online_cpu(cpu) {
+		unsigned long start = ktime_get_mono_fast_ns();
+
+		if (!(targets & BIT(cpu)))
+			continue;
+		/* Poll only flush requests so two IRQ-disabled invalidators cannot deadlock. */
+		while (smp_load_acquire(&kernel_flush[cpu][self].ack) != generation) {
+			mmix_ipi_flush_poll();
+			if (ktime_get_mono_fast_ns() - start > 5000000000UL)
+				panic("MMIX: kernel mapping flush CPU %u timed out", cpu);
+			cpu_relax();
+		}
+	}
+	local_irq_restore(flags);
+}
 
 bool mmix_ipi_ready(unsigned int cpu)
 {
@@ -198,6 +258,8 @@ void mmix_ipi_interrupt(void)
 		iowrite64be(1, ipi_context[cpu] + 8);
 		mmix_ack_requests(MMIX_IRQ_IPI);
 		messages = atomic_long_xchg(&state->messages, 0);
+		if (messages & IPI_KERNEL_FLUSH)
+			mmix_ipi_flush_poll();
 		if ((messages & IPI_STOP) ||
 		    (READ_ONCE(mmix_secondary_abort) && !cpu_online(cpu)))
 			stop_self();

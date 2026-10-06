@@ -123,6 +123,8 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	int error, fatal_signal = 0, exit_code = 0;
 	bool exit_requested = false, exit_group = false;
 
+	if (IS_ENABLED(CONFIG_MMIX_SMP_KERNEL))
+		return -EOPNOTSUPP;
 	if (!ops)
 		ops = &native_ops;
 	if (current->thread.user_entry)

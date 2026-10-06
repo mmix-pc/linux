@@ -41,5 +41,7 @@ void mmix_secondary_start(void);
 void mmix_secondary_fault(void);
 void __noreturn mmix_secondary_park(void);
 void __init mmix_smp_discover(void);
+void __noreturn mmix_enter_secondary(unsigned long seed);
+void __noreturn mmix_secondary_main(void);
 #endif
 #endif

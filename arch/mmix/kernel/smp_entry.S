@@ -86,6 +86,20 @@ mmix_secondary_fault:
 	ADDU r250,r250,r255
 	JMPB .Lsecondary_early_fault
 
+#ifdef CONFIG_SMP
+.globl mmix_enter_secondary
+mmix_enter_secondary:
+	PUT rK,0
+	OR r255,r231,0
+	UNSAVE r255
+	GET r255,rT
+	ADDU r255,r255,4
+	PUT rTT,r255
+	PUSHJ r31,mmix_secondary_main
+	GETA r255,%geta(mmix_secondary_fault)
+	GO r255,r255,0
+#endif
+
 /* QEMU loads this initialized section before starting any CPU. */
 .data
 .balign 64

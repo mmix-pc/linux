@@ -86,6 +86,7 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 {
 	struct pt_regs *old_regs;
 	unsigned long pending;
+	bool irq = false;
 
 	mmix_exception_prepare(entry, regs);
 	old_regs = set_irq_regs(regs);
@@ -101,6 +102,7 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 			mmix_exception_fatal();
 		mmix_ack_requests(pending & MMIX_KERNEL_FAULT_MASK);
 	} else if (pending & MMIX_IRQ_EXTERNAL) {
+		irq = true;
 		irq_enter();
 		if (pending & MMIX_IRQ_IPI)
 			mmix_ipi_interrupt();
@@ -111,12 +113,15 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 		/* The complete frame is now task-owned, including across softirqs. */
 		WRITE_ONCE(entry->busy, 0);
 		irq_exit();
+		/* A detached frame may migrate; irq_regs remains owned by its source CPU. */
+		set_irq_regs(old_regs);
 		if (IS_ENABLED(CONFIG_PREEMPTION) && !preempt_count() && need_resched())
 			preempt_schedule_irq();
 	} else {
 		mmix_exception_fatal();
 	}
 	local_irq_disable();
-	set_irq_regs(old_regs);
+	if (!irq)
+		set_irq_regs(old_regs);
 	mmix_exception_finish(entry, regs);
 }

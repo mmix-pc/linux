@@ -67,20 +67,19 @@ config NR_CPUS
 	default 1
 
 config MMIX_SMP_KERNEL
-	bool "MMIX kernel-only multiprocessor scheduling"
+	bool "MMIX multiprocessor scheduling"
 	depends on SMP
 	help
 	  Bring prepared CPUs online with normal idle tasks and local clock
-	  events. This staged mode admits kernel work only; native userspace
-	  entry remains unavailable until remote MMU and ownership work is
-	  qualified. Leave disabled for preparation-only or UP profiles.
+	  events, acknowledged remote MMU maintenance and native user entry.
+	  Leave disabled for preparation-only or qualified UP profiles.
 
 source "kernel/Kconfig.hz"
 
 config MMIX_THREAD_ENTRY
 	bool "MMIX native thread entry"
 	depends on VMAP_STACK && PREEMPTION
-	depends on !SMP
+	depends on !SMP || MMIX_SMP_KERNEL
 	help
 	  Enable the selected raw clone thread-entry profile. Keep disabled in
 	  ordinary configurations until thread-group lifecycle and directed

@@ -10,6 +10,7 @@
 #include <asm/rstack.h>
 #include "user_entry.h"
 #include "signal.h"
+#include "ipi.h"
 #include "../mm/fault.h"
 
 #ifdef CONFIG_MMIX_USER_TEST
@@ -123,8 +124,6 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	int error, fatal_signal = 0, exit_code = 0;
 	bool exit_requested = false, exit_group = false;
 
-	if (IS_ENABLED(CONFIG_MMIX_SMP_KERNEL))
-		return -EOPNOTSUPP;
 	if (!ops)
 		ops = &native_ops;
 	if (current->thread.user_entry)
@@ -211,7 +210,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	memcpy(regs->regs, state->regs.regs, sizeof(regs->regs));
 	regs->pc = regs->r_ww;
 	regs->syscall_nr = -1;
-	pending = regs->r_q & ((0xffUL << 32) | MMIX_IRQ_CONTROLLER);
+	pending = regs->r_q & ((0xffUL << 32) | MMIX_IRQ_EXTERNAL);
 	syscall = (regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
 		  !(pending & (0xffUL << 32));
 	/* Pending IRQs must not consume synchronous forced traps or translations. */
@@ -222,17 +221,22 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		local_irq_enable();
 		force_sig(SIGUSR2);
 		local_irq_disable();
-	} else if ((pending & MMIX_IRQ_CONTROLLER) && !(pending & (0xffUL << 32)) && !syscall &&
+	} else if ((pending & MMIX_IRQ_EXTERNAL) && !(pending & (0xffUL << 32)) && !syscall &&
 	    regs->r_xx >> 32 != 0x03000000UL) {
 		entry->interrupts++;
 		old_regs = set_irq_regs(regs);
 		irq_enter();
-		handle_arch_irq(regs);
-		mmix_ack_requests(MMIX_IRQ_CONTROLLER);
+		if (pending & MMIX_IRQ_IPI)
+			mmix_ipi_interrupt();
+		if (pending & MMIX_IRQ_CONTROLLER) {
+			handle_arch_irq(regs);
+			mmix_ack_requests(MMIX_IRQ_CONTROLLER);
+		}
 		irq_exit();
+		/* The prior pointer belongs to this CPU; restore it before possible migration. */
+		set_irq_regs(old_regs);
 		if (IS_ENABLED(CONFIG_PREEMPTION) && !preempt_count() && need_resched())
 			preempt_schedule_irq();
-		set_irq_regs(old_regs);
 	} else {
 		entry->event = MMIX_USER_FAULT;
 		if (syscall) {
@@ -271,6 +275,9 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 			prepared = false;
 	}
 	error = prepared ? 0 : prepare_return(entry);
+	/* Refresh after the last faultable/schedulable signal step with IRQs masked. */
+	if (!error && entry->ops->write == mmix_user_write)
+		error = mmix_refresh_translation(regs) ? -EFAULT : 0;
 	if (!error)
 		return 0;
 failed:

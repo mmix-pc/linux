@@ -2,6 +2,11 @@
 #include <generated/asm-offsets.h>
 #include <asm/cpu_local.h>
 .text
+#ifdef CONFIG_SMP
+#define MMIX_USER_IRQ_MASK 768
+#else
+#define MMIX_USER_IRQ_MASK 256
+#endif
 .balign 4
 .globl mmix_user_run
 mmix_user_run:
@@ -45,7 +50,7 @@ mmix_user_run:
 	/* Kernel translations must not survive the privilege boundary. */
 	SYNC 6
 	SETMH r253,0xff
-	ORL r253,256
+	ORL r253,MMIX_USER_IRQ_MASK
 	MMIX_CPU_PTR r254,MMIX_CPU_VECTOR_IRQ
 	STOU r253,r254,0
 	SETL r254,USER_REGS+PT_REGS+230*8
@@ -99,7 +104,7 @@ mmix_user_run:
 	SETL r254,USER_REGS+PT_REGS+254*8
 	LDOU r254,r255,r254
 	SETMH r255,0xff
-	ORL r255,256
+	ORL r255,MMIX_USER_IRQ_MASK
 	RESUME 1
 
 .globl mmix_user_capture_entry

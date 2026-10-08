@@ -38,3 +38,37 @@ __clear_user:
 .balign 8
 .quad 1b,2b
 .popsection
+
+/* Aligned futex/TID words need one indivisible access, including kernel clears. */
+.text
+.balign 4
+.globl mmix_user_load32
+mmix_user_load32:
+	OR r0,r231,0
+	SETL r1,0
+1:	LDTU r1,r0,0
+2:	STTU r1,r232,0
+	SETL r231,0
+	POP 0,0
+3:	SETL r1,0
+	STTU r1,r232,0
+	SETL r231,14
+	NEGU r231,0,r231
+	POP 0,0
+
+.globl mmix_user_store32
+mmix_user_store32:
+	OR r0,r231,0
+	LDTU r1,r232,0
+4:	STTU r1,r0,0
+	SETL r231,0
+	POP 0,0
+5:	SETL r231,14
+	NEGU r231,0,r231
+	POP 0,0
+
+.pushsection __ex_table,"a"
+.balign 8
+.quad 1b,3b
+.quad 4b,5b
+.popsection

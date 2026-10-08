@@ -14,6 +14,7 @@
 struct mmix_mmu_state {
 	unsigned long globals[15]; /* Scratch registers 240-254. */
 	unsigned long busy;
+	unsigned long r_p; /* Interrupted CSWAP state, preserved across refill RMW. */
 	pgd_t *root; /* Local selector for shared kernel tables. */
 	pgd_t *user_root; /* Active user root; NULL for init_mm. */
 	unsigned long ram_end;

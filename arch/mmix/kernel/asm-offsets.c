@@ -79,6 +79,7 @@ int main(void)
 	DEFINE(BOOT_SEED_TOP, (1 + 256 - MMIX_BOOT_RG + 12) * sizeof(unsigned long));
 	DEFINE(MMU_GLOBALS, offsetof(struct mmix_mmu_state, globals));
 	DEFINE(MMU_BUSY, offsetof(struct mmix_mmu_state, busy));
+	DEFINE(MMU_RP, offsetof(struct mmix_mmu_state, r_p));
 	DEFINE(MMU_ROOT, offsetof(struct mmix_mmu_state, root));
 	DEFINE(MMU_USER_ROOT, offsetof(struct mmix_mmu_state, user_root));
 	DEFINE(MMU_RAM_END, offsetof(struct mmix_mmu_state, ram_end));

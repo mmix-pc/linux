@@ -149,7 +149,7 @@ retry:
 	} else if (fault & (VM_FAULT_SIGBUS | VM_FAULT_HWPOISON | VM_FAULT_HWPOISON_LARGE)) {
 		signal = SIGBUS;
 	} else if (!(fault & VM_FAULT_ERROR)) {
-		flush_tlb_all();
+		local_flush_tlb_all();
 		signal = 0;
 	}
 out:

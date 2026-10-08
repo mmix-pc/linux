@@ -8,6 +8,9 @@ struct task_struct;
 struct mm_struct;
 struct vm_area_struct;
 
+void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *task);
+#define enter_lazy_tlb enter_lazy_tlb
+
 void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	       struct task_struct *task);
 int init_new_context(struct task_struct *task, struct mm_struct *mm);

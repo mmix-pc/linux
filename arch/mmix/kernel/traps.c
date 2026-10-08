@@ -76,7 +76,7 @@ void mmix_exception_finish(struct mmix_entry_state *entry, struct pt_regs *regs)
 	if (mmix_this_cpu()->mmu.root != (pgd_t *)regs->root || rv != regs->r_v) {
 		WRITE_ONCE(mmix_this_cpu()->mmu.root, (pgd_t *)regs->root);
 		asm volatile("PUT rV,%0" : : "r" (regs->r_v) : "memory");
-		flush_tlb_all();
+		local_flush_tlb_all();
 	}
 	/* Return assembly consumes only the resident slot after UNSAVE. */
 	entry->regs = *regs;

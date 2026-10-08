@@ -131,7 +131,7 @@ void __noreturn mmix_secondary_main(void)
 	cpumask_set_cpu(cpu, mm_cpumask(&init_mm));
 	notify_cpu_starting(cpu);
 	mmix_timer_cpu_start();
-	flush_tlb_all();
+	local_flush_tlb_all();
 	mmix_ipi_flush_poll();
 	set_cpu_online(cpu, true);
 	complete(&secondary_running);

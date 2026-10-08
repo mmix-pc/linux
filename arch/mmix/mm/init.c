@@ -48,7 +48,7 @@ void __init paging_init(void)
 	max_low_pfn = PFN_DOWN(memblock_end_of_DRAM());
 	max_pfn = max_low_pfn;
 	memblock_set_current_limit(PFN_PHYS(max_low_pfn));
-	flush_tlb_all();
+	local_flush_tlb_all();
 }
 
 void __init arch_zone_limits_init(unsigned long *max_zone_pfns)

@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kstrtox.h>
+#include <linux/sched/signal.h>
 #include <linux/seq_file.h>
 #include <asm/rstack.h>
 #include "signal.h"
@@ -20,6 +21,42 @@ static int rstack_stats_show(struct seq_file *seq, void *unused)
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(rstack_stats);
+
+static unsigned long workqueue_stacks_live(void)
+{
+	struct task_struct *group, *task;
+	unsigned long count = 0;
+
+	rcu_read_lock();
+	for_each_process_thread(group, task) {
+		if ((READ_ONCE(task->flags) & PF_WQ_WORKER) &&
+		    READ_ONCE(task->thread.rstack))
+			count++;
+	}
+	rcu_read_unlock();
+	return count;
+}
+
+static int workqueue_rstack_stats_show(struct seq_file *seq, void *unused)
+{
+	unsigned long allocated, released, workers, allocated_after, released_after;
+	bool stable;
+
+	/* Retry in the observer if task creation or final release overlaps sampling. */
+	allocated = mmix_rstack_allocated();
+	released = mmix_rstack_released();
+	workers = workqueue_stacks_live();
+	stable = workers == workqueue_stacks_live();
+	allocated_after = mmix_rstack_allocated();
+	released_after = mmix_rstack_released();
+	stable = stable && allocated == allocated_after && released == released_after;
+	seq_printf(seq, "kernel_stacks_allocated %lu\n", allocated_after);
+	seq_printf(seq, "kernel_stacks_released %lu\n", released_after);
+	seq_printf(seq, "workqueue_stacks_live %lu\n", workers);
+	seq_printf(seq, "stable %u\n", stable);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(workqueue_rstack_stats);
 
 static int signal_stats_show(struct seq_file *seq, void *unused)
 {
@@ -83,6 +120,12 @@ static int __init user_test_init(void)
 		return PTR_ERR(file);
 	}
 	file = debugfs_create_file("signal_stats", 0400, dir, NULL, &signal_stats_fops);
+	if (IS_ERR(file)) {
+		debugfs_remove(dir);
+		return PTR_ERR(file);
+	}
+	file = debugfs_create_file("workqueue_rstack_stats", 0400, dir, NULL,
+				   &workqueue_rstack_stats_fops);
 	if (IS_ERR(file)) {
 		debugfs_remove(dir);
 		return PTR_ERR(file);

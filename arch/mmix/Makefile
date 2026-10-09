@@ -7,3 +7,4 @@ KBUILD_AFLAGS += -fno-asynchronous-unwind-tables -fno-unwind-tables
 
 core-y += arch/mmix/kernel/
 core-y += arch/mmix/mm/
+libs-y += arch/mmix/lib/

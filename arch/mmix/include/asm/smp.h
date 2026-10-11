@@ -4,9 +4,9 @@
 
 #include <asm/cpu_local.h>
 
+#ifdef CONFIG_SMP
 #define raw_smp_processor_id() mmix_cpu_id()
 
-#ifdef CONFIG_SMP
 struct cpumask;
 void arch_smp_send_reschedule(int cpu);
 void arch_send_call_function_single_ipi(int cpu);

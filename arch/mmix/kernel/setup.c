@@ -24,9 +24,7 @@ void __init setup_arch(char **cmdline_p)
 	if (!early_init_dt_scan(__va(boot->fdt), boot->fdt))
 		panic("MMIX: invalid boot FDT");
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
-#ifdef CONFIG_SMP
 	mmix_smp_discover();
-#endif
 	*cmdline_p = boot_command_line;
 
 	mmix_reserve_boot_memory();

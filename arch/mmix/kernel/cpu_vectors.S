@@ -8,7 +8,7 @@
 .globl mmix_cpu_vectors
 mmix_cpu_vectors:
 .set cpu_slot,0
-.rept MMIX_BOOT_CPU_SLOTS
+.rept CONFIG_NR_CPUS
 	JMP mmix_refill
 	JMP mmix_exception_entry
 	.quad mmix_cpu_states+cpu_slot*CPU_SIZE+CPU_ENTRY

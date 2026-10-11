@@ -17,6 +17,47 @@
 #include "process.h"
 #include "user_entry.h"
 
+struct lifecycle_stacks {
+	unsigned long allocated;
+	unsigned long released;
+	unsigned long workers;
+	unsigned long residual;
+};
+
+static unsigned long lifecycle_stack_workers(void)
+{
+	struct task_struct *group, *task;
+	unsigned long count = 0;
+
+	rcu_read_lock();
+	for_each_process_thread(group, task) {
+		if ((READ_ONCE(task->flags) & PF_WQ_WORKER) &&
+		    READ_ONCE(task->thread.rstack))
+			count++;
+	}
+	rcu_read_unlock();
+	return count;
+}
+
+static bool lifecycle_stack_snapshot(struct lifecycle_stacks *stacks)
+{
+	unsigned long allocated, released, workers;
+
+	allocated = mmix_rstack_allocated();
+	released = mmix_rstack_released();
+	workers = lifecycle_stack_workers();
+	if (workers != lifecycle_stack_workers() ||
+	    allocated != mmix_rstack_allocated() ||
+	    released != mmix_rstack_released() || allocated < released ||
+	    workers > allocated - released)
+		return false;
+	stacks->allocated = allocated;
+	stacks->released = released;
+	stacks->workers = workers;
+	stacks->residual = allocated - released - workers;
+	return true;
+}
+
 #define CODE (4UL << 20)
 #define DATA (6UL << 20)
 #define STACK (8UL << 20)
@@ -90,12 +131,16 @@ static void lifecycle_cycles(struct kunit *test)
 	unsigned long words[] = { DATA + 65, 0 };
 	unsigned long delay[] = { 0, 10000000 };
 	long baseline = mmix_user_rstack_live();
-	unsigned long kernel_live =
-		mmix_rstack_allocated() - mmix_rstack_released();
+	struct lifecycle_stacks before = {}, after = {};
+	bool stable = false;
 	size_t length = mmix_lifecycle_image_end - mmix_lifecycle_image;
 	unsigned int i;
 	int status = 0;
 	pid_t pid;
+
+	for (i = 0; i < 100 && !lifecycle_stack_snapshot(&before); i++)
+		usleep_range(10000, 11000);
+	KUNIT_ASSERT_LT(test, i, 100U);
 
 	mm = mm_alloc();
 	KUNIT_ASSERT_NOT_NULL(test, mm);
@@ -165,12 +210,16 @@ static void lifecycle_cycles(struct kunit *test)
 	for (i = 0;
 	     i < 100 &&
 	     (mmix_user_rstack_live() != baseline ||
-	      mmix_rstack_allocated() - mmix_rstack_released() != kernel_live);
+	      !lifecycle_stack_snapshot(&after) || after.residual != before.residual);
 	     i++)
 		usleep_range(10000, 11000);
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_live(), baseline);
-	KUNIT_EXPECT_EQ(test, mmix_rstack_allocated() - mmix_rstack_released(),
-			kernel_live);
+	stable = lifecycle_stack_snapshot(&after);
+	KUNIT_EXPECT_TRUE(test, stable);
+	KUNIT_EXPECT_EQ(test, after.residual, before.residual);
+	kunit_info(test, "MMIX_LIFECYCLE accounting before=%lu,%lu,%lu,%lu after=%lu,%lu,%lu,%lu\n",
+		   before.allocated, before.released, before.workers, before.residual,
+		   after.allocated, after.released, after.workers, after.residual);
 	kunit_info(test, "MMIX_LIFECYCLE cycles=%u failed=%u status=%d\n",
 		   t.waits, t.rejected, status);
 out:

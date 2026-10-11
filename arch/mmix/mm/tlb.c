@@ -16,12 +16,8 @@ void local_flush_tlb_all(void)
 
 void flush_tlb_all(void)
 {
-#ifdef CONFIG_MMIX_SMP_KERNEL
 	/* Cover lazy/inactive translations without relying on a racing mm mask. */
 	mmix_ipi_flush(MMIX_FLUSH_TLB);
-#else
-	local_flush_tlb_all();
-#endif
 }
 
 void flush_tlb_mm(struct mm_struct *mm)
@@ -98,16 +94,7 @@ void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *task)
 
 void flush_cache_all(void)
 {
-#ifdef CONFIG_MMIX_SMP_KERNEL
 	mmix_ipi_flush(MMIX_FLUSH_CACHE);
-#else
-	unsigned long flags;
-
-	/* Clean before clearing, with no intervening interrupt cache writes. */
-	local_irq_save(flags);
-	asm volatile("SYNC 5\n\tSYNC 7" ::: "memory");
-	local_irq_restore(flags);
-#endif
 }
 
 void flush_cache_mm(struct mm_struct *mm)

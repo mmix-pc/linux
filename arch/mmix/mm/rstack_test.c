@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <kunit/test.h>
+#include <linux/completion.h>
+#include <linux/delay.h>
+#include <linux/rcupdate.h>
+#include <linux/smp.h>
 #include <linux/kthread.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
@@ -10,6 +14,46 @@
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <asm/rstack.h>
+
+static int quiesce_domain_cpu(void *argument)
+{
+	struct completion *done = argument;
+
+	/* Retire the borrowed lazy-mm reference through the normal Linux API. */
+	kthread_use_mm(&init_mm);
+	kthread_unuse_mm(&init_mm);
+	complete(done);
+	/* Keep the task alive until the controller joins its owner reference. */
+	while (!kthread_should_stop())
+		msleep(20);
+	return 0;
+}
+
+static int quiesce_domains(void)
+{
+	unsigned int cpu;
+
+	for_each_online_cpu(cpu) {
+		DECLARE_COMPLETION_ONSTACK(done);
+		struct task_struct *task;
+		bool completed;
+		int error;
+
+		task = kthread_create(quiesce_domain_cpu, &done,
+				      "mmix-mm-retire/%u", cpu);
+		if (IS_ERR(task))
+			return PTR_ERR(task);
+		kthread_bind(task, cpu);
+		wake_up_process(task);
+		completed = wait_for_completion_timeout(&done, 10 * HZ) != 0;
+		error = kthread_stop(task);
+		if (!completed || error)
+			return error ?: -ETIMEDOUT;
+	}
+	/* Include final mm drops deferred by a scheduling transition. */
+	rcu_barrier();
+	return 0;
+}
 
 struct fork_domains {
 	u64 root, orphan;
@@ -523,7 +567,7 @@ static void independent_owners(struct kunit *test)
 {
 	struct independent_owner *workers;
 	struct mmix_rstack_owner *parent, *failed;
-	struct mm_struct *mm = mm_alloc();
+	struct mm_struct *mm;
 	struct vm_area_struct *vma;
 	struct kernel_clone_args args = {
 		.flags = CLONE_VM,
@@ -537,10 +581,13 @@ static void independent_owners(struct kunit *test)
 	unsigned int cycle, i, j, round;
 	int maps, status;
 #ifdef CONFIG_MMIX_USER_TEST
-	long owners = mmix_rstack_owners_live();
-	long domains = mmix_rstack_domains_live();
+	long owners, domains;
+	long owners_before = mmix_rstack_owners_live();
+	long domains_before = mmix_rstack_domains_live();
 #endif
 
+	KUNIT_ASSERT_EQ(test, quiesce_domains(), 0);
+	mm = mm_alloc();
 	KUNIT_ASSERT_NOT_NULL(test, mm);
 	workers = kunit_kcalloc(test, ARRAY_SIZE(pids), sizeof(*workers), GFP_KERNEL);
 	if (!workers) {
@@ -551,6 +598,13 @@ static void independent_owners(struct kunit *test)
 	KUNIT_ASSERT_NULL(test, current->thread.rstack_owner);
 	mm->mmap_base = TASK_UNMAPPED_BASE;
 	kthread_use_mm(mm);
+#ifdef CONFIG_MMIX_USER_TEST
+	/* Adopting this mm drops the task's previous lazy-mm reference. */
+	owners = mmix_rstack_owners_live();
+	domains = mmix_rstack_domains_live();
+	kunit_info(test, "MMIX_INDEPENDENT baseline_before=%ld,%ld baseline=%ld,%ld\n",
+		   owners_before, domains_before, owners, domains);
+#endif
 	maps = mm->map_count;
 	parent = mmix_rstack_owner_create(mm, &root, &base);
 	if (IS_ERR(parent)) {

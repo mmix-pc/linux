@@ -7,11 +7,7 @@
 
 #define MMIX_IRQ_CONTROLLER	(1UL << 8)
 #define MMIX_IRQ_IPI		(1UL << 9)
-#ifdef CONFIG_SMP
 #define MMIX_IRQ_EXTERNAL	(MMIX_IRQ_CONTROLLER | MMIX_IRQ_IPI)
-#else
-#define MMIX_IRQ_EXTERNAL	MMIX_IRQ_CONTROLLER
-#endif
 #define MMIX_KERNEL_FAULT_MASK	(0xe4UL << 32)
 
 /* The directly mapped shadow belongs to the invoking CPU. */

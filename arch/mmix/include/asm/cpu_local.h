@@ -13,7 +13,6 @@
 #define MMIX_CPU_VECTOR_STATE	64
 #define MMIX_CPU_VECTOR_ID	72
 #define MMIX_CPU_VECTOR_SIZE	80
-#define MMIX_BOOT_CPU_SLOTS	4
 
 #ifdef __ASSEMBLER__
 .macro MMIX_CPU_PTR reg, offset

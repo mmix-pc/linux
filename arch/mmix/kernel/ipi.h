@@ -18,7 +18,6 @@ struct mmix_ipi_work {
 #define MMIX_FLUSH_TLB BIT(0)
 #define MMIX_FLUSH_CACHE BIT(1)
 
-#ifdef CONFIG_SMP
 void __init mmix_ipi_init(void);
 void mmix_ipi_cpu_start(void);
 void mmix_ipi_cpu_retire(void);
@@ -33,8 +32,4 @@ void mmix_ipi_kick(unsigned long targets);
 bool mmix_ipi_ready(unsigned int cpu);
 void mmix_ipi_flush(unsigned long operations);
 void mmix_ipi_flush_poll(void);
-#else
-static inline void mmix_ipi_init(void) { }
-static inline void mmix_ipi_interrupt(void) { }
-#endif
 #endif

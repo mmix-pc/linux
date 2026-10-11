@@ -17,8 +17,8 @@
 #define MMIX_INTC_CLAIM 0x800
 #define MMIX_INTC_COMPLETE 0x808
 
-static void __iomem *intc_context[MMIX_BOOT_CPU_SLOTS];
-static unsigned long intc_claimed[MMIX_BOOT_CPU_SLOTS];
+static void __iomem *intc_context[CONFIG_NR_CPUS];
+static unsigned long intc_claimed[CONFIG_NR_CPUS];
 static unsigned int intc_cpus;
 static u8 intc_target[MMIX_INTC_SOURCES];
 static DECLARE_BITMAP(intc_enabled, MMIX_INTC_SOURCES);

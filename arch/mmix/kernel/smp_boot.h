@@ -35,7 +35,7 @@ struct mmix_secondary_boot {
 	unsigned long cpu;
 } __aligned(64);
 
-extern struct mmix_secondary_boot mmix_secondary_boot[MMIX_BOOT_CPU_SLOTS];
+extern struct mmix_secondary_boot mmix_secondary_boot[CONFIG_NR_CPUS];
 extern unsigned long mmix_secondary_abort;
 void mmix_secondary_start(void);
 void mmix_secondary_fault(void);

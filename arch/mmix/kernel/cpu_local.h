@@ -29,7 +29,7 @@ struct mmix_cpu_state {
 	unsigned char continuation[PAGE_SIZE] __aligned(PAGE_SIZE);
 } __aligned(PAGE_SIZE);
 
-extern struct mmix_cpu_state mmix_cpu_states[MMIX_BOOT_CPU_SLOTS];
+extern struct mmix_cpu_state mmix_cpu_states[CONFIG_NR_CPUS];
 extern unsigned char mmix_cpu_vectors[];
 
 /* rT is privileged, CPU-owned and unaffected by SAVE/UNSAVE or user globals. */

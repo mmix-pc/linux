@@ -89,7 +89,7 @@ static void __init boot_cpus(const void *fdt, struct mmix_boot_info *boot)
 {
 	int cpus = fdt_path_offset(fdt, "/cpus");
 	int reserved = fdt_path_offset(fdt, "/reserved-memory");
-	int stack_nodes[MMIX_BOOT_CPU_SLOTS];
+	int stack_nodes[CONFIG_NR_CPUS];
 	int cpu, node, i, length, reservations;
 	unsigned long base, size;
 
@@ -103,8 +103,7 @@ static void __init boot_cpus(const void *fdt, struct mmix_boot_info *boot)
 		unsigned int id = cell(fdt, cpu, "reg");
 		unsigned int phandle = fdt_get_phandle(fdt, cpu);
 
-		if (id != boot->nr_cpus || id >= CONFIG_NR_CPUS ||
-		    id >= MMIX_BOOT_CPU_SLOTS || !phandle ||
+		if (id != boot->nr_cpus || id >= CONFIG_NR_CPUS || !phandle ||
 		    fdt_node_check_compatible(fdt, cpu, "qemu,mmix-cpu") ||
 		    strcmp(boot_property(fdt, cpu, "device_type", 4), "cpu") ||
 		    strcmp(boot_property(fdt, cpu, "status", 5), "okay") ||

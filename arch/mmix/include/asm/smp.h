@@ -4,7 +4,6 @@
 
 #include <asm/cpu_local.h>
 
-#ifdef CONFIG_SMP
 #define raw_smp_processor_id() mmix_cpu_id()
 
 struct cpumask;
@@ -12,8 +11,5 @@ void arch_smp_send_reschedule(int cpu);
 void arch_send_call_function_single_ipi(int cpu);
 void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 void mmix_smp_stop(void);
-#else
-static inline void mmix_smp_stop(void) { }
-#endif
 
 #endif

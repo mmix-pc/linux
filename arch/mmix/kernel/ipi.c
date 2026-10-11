@@ -24,17 +24,17 @@ struct mmix_ipi_state {
 	struct mmix_ipi_work *work;
 	unsigned long interrupts, callbacks, rejected;
 } __aligned(64);
-static struct mmix_ipi_state ipi_state[MMIX_BOOT_CPU_SLOTS];
+static struct mmix_ipi_state ipi_state[CONFIG_NR_CPUS];
 static void __iomem *ipi_global;
-static void __iomem *ipi_context[MMIX_BOOT_CPU_SLOTS];
+static void __iomem *ipi_context[CONFIG_NR_CPUS];
 static unsigned int ipi_cpus;
 
 struct mmix_flush_request {
 	unsigned long request, ack, operations;
 };
 
-static struct mmix_flush_request flush_requests[MMIX_BOOT_CPU_SLOTS][MMIX_BOOT_CPU_SLOTS];
-static unsigned long flush_generation[MMIX_BOOT_CPU_SLOTS];
+static struct mmix_flush_request flush_requests[CONFIG_NR_CPUS][CONFIG_NR_CPUS];
+static unsigned long flush_generation[CONFIG_NR_CPUS];
 
 static void local_flush(unsigned long operations)
 {
@@ -109,10 +109,10 @@ bool mmix_ipi_ready(unsigned int cpu)
 
 void mmix_ipi_kick(unsigned long targets)
 {
-	if (ipi_global) {
+	if (ipi_global && ipi_cpus) {
 		/* Software publication must precede the coalescing hardware doorbell. */
 		mb();
-		iowrite64be(targets & ((1UL << ipi_cpus) - 1), ipi_global + 8);
+		iowrite64be(targets & GENMASK(ipi_cpus - 1, 0), ipi_global + 8);
 	}
 }
 
@@ -126,14 +126,14 @@ void __init mmix_ipi_init(void)
 	node = of_find_compatible_node(NULL, NULL, "qemu,mmix-ipi");
 	if (!node || !of_device_is_available(node) ||
 	    of_property_read_u32(node, "qemu,context-count", &count) ||
-	    count != mmix_get_boot_info()->nr_cpus || count > MMIX_BOOT_CPU_SLOTS ||
+	    count != mmix_get_boot_info()->nr_cpus || count > CONFIG_NR_CPUS ||
 	    of_property_read_u32(node, "qemu,context-stride", &stride) || stride != 0x10000 ||
 	    of_property_read_u32(node, "qemu,request-bit", &bit) || bit != 9 ||
 	    of_address_to_resource(node, 0, &resource) || resource_size(&resource) < 16 ||
 	    of_address_to_resource(node, 1, &contexts) || resource_size(&contexts) < count * stride)
 		panic("MMIX: invalid IPI description");
 	ipi_global = ioremap(resource.start, resource_size(&resource));
-	if (!ipi_global || ioread64be(ipi_global) != (1UL << count) - 1)
+	if (!ipi_global || ioread64be(ipi_global) != GENMASK(count - 1, 0))
 		panic("MMIX: invalid IPI active population");
 	for (cpu = 0; cpu < count; cpu++) {
 		ipi_context[cpu] = ioremap(contexts.start + cpu * stride, stride);

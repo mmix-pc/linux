@@ -13,13 +13,13 @@
 #include "ipi.h"
 #include "time.h"
 
-static unsigned long secondary_launch[MMIX_BOOT_CPU_SLOTS];
+static unsigned long secondary_launch[CONFIG_NR_CPUS];
 static DECLARE_COMPLETION(secondary_running);
 
 /* Bootstrap storage stays owned even if a CPU fails to acknowledge startup. */
-static unsigned char secondary_stacks[MMIX_BOOT_CPU_SLOTS][MMIX_BOOT_STACK_SIZE]
+static unsigned char secondary_stacks[CONFIG_NR_CPUS][MMIX_BOOT_STACK_SIZE]
 	__aligned(PAGE_SIZE);
-static unsigned long secondary_rstack[MMIX_BOOT_CPU_SLOTS]
+static unsigned long secondary_rstack[CONFIG_NR_CPUS]
 	[MMIX_BOOT_RSTACK_SIZE / sizeof(unsigned long)] __aligned(PAGE_SIZE);
 
 void __init mmix_smp_discover(void)
@@ -27,6 +27,7 @@ void __init mmix_smp_discover(void)
 	unsigned int cpu;
 
 	for (cpu = 0; cpu < mmix_get_boot_info()->nr_cpus; cpu++) {
+		mmix_cpu_states[cpu].id = cpu;
 		set_cpu_possible(cpu, true);
 		set_cpu_present(cpu, true);
 	}
@@ -141,9 +142,7 @@ void __noreturn mmix_secondary_main(void)
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
-	if (!IS_ENABLED(CONFIG_MMIX_SMP_KERNEL))
-		return -EOPNOTSUPP;
-	if (cpu >= MMIX_BOOT_CPU_SLOTS || !cpu_present(cpu) ||
+	if (cpu >= CONFIG_NR_CPUS || !cpu_present(cpu) ||
 	    !mmix_ipi_ready(cpu) || cpu_online(cpu))
 		return -EINVAL;
 	reinit_completion(&secondary_running);
@@ -159,9 +158,8 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 
 void __init smp_cpus_done(unsigned int max_cpus)
 {
-	pr_info("MMIX: %s; %u CPU online\n",
-		IS_ENABLED(CONFIG_MMIX_SMP_KERNEL) ? "kernel scheduling ready" :
-		"secondary scheduling disabled", num_online_cpus());
+	pr_info("MMIX: kernel scheduling ready; %u CPU online\n",
+		num_online_cpus());
 }
 
 void mmix_smp_stop(void)
@@ -170,11 +168,11 @@ void mmix_smp_stop(void)
 
 	/* Every barrier and parked CPU polls this permanent release record. */
 	smp_store_release(&mmix_secondary_abort, 1);
-	for (cpu = 0; cpu < MMIX_BOOT_CPU_SLOTS; cpu++)
+	for (cpu = 0; cpu < CONFIG_NR_CPUS; cpu++)
 		if (cpu != mmix_cpu_id())
 			mmix_ipi_send_stop(cpu);
 	mmix_ipi_cpu_retire();
-	for (cpu = 0; cpu < MMIX_BOOT_CPU_SLOTS; cpu++) {
+	for (cpu = 0; cpu < CONFIG_NR_CPUS; cpu++) {
 		if (cpu == mmix_cpu_id() ||
 		    (!READ_ONCE(mmix_secondary_boot[cpu].claim) && !cpu_online(cpu)))
 			continue;

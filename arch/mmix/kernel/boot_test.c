@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Executed by KUnit before init memory is freed or userspace is entered. */
 #include <kunit/test.h>
+#include <linux/bitmap.h>
 #include <linux/completion.h>
 #include <linux/crc32.h>
 #include <linux/delay.h>
@@ -72,10 +73,15 @@ static void __ref memory(struct kunit *test)
 {
 	const struct mmix_boot_info *boot = mmix_get_boot_info();
 	struct page *pages[32];
-	unsigned long first = 0, min_pa = ULONG_MAX, max_pa = 0;
+	unsigned long min_pa = ULONG_MAX, max_pa = 0;
+	unsigned long nr_pages = boot->ram_size >> PAGE_SHIFT;
+	unsigned long *seen;
 	bool reused = false;
 	unsigned int round, i, j, allocated, checked = 0;
 
+	seen = kunit_kzalloc(test, BITS_TO_LONGS(nr_pages) * sizeof(*seen),
+			     GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, seen);
 	for (round = 0; round < 64; round++) {
 		allocated = 0;
 		for (i = 0; i < ARRAY_SIZE(pages); i++) {
@@ -95,9 +101,10 @@ static void __ref memory(struct kunit *test)
 			KUNIT_EXPECT_FALSE(test, overlaps(pa, PAGE_SIZE,
 							  __pa_symbol(__boot_start),
 							  __boot_end - __boot_start));
-			if (!round && !i)
-				first = pa;
-			else if (round && pa == first)
+			KUNIT_EXPECT_LT(test, pa, boot->ram_size);
+			/* Reuse is required; per-CPU caches need not return the first page. */
+			if (pa < boot->ram_size &&
+			    test_and_set_bit(pa >> PAGE_SHIFT, seen))
 				reused = true;
 			KUNIT_EXPECT_FALSE(test, overlaps(pa, PAGE_SIZE,
 							  __pa_symbol(_stext),
@@ -409,6 +416,7 @@ static void context_switch(struct kunit *test)
 			KUNIT_FAIL(test, "kthread creation");
 			return;
 		}
+		kthread_bind(tasks[i], 0);
 		get_task_struct(tasks[i]);
 	}
 	for (i = 0; i < 2; i++) {
@@ -500,6 +508,7 @@ static void preemption(struct kunit *test)
 
 	KUNIT_ASSERT_FALSE(test, IS_ERR(task));
 	get_task_struct(task);
+	kthread_bind(task, 0);
 	sched_set_fifo_low(task);
 	sched_set_fifo(current);
 	wake_up_process(task);
@@ -527,8 +536,15 @@ static struct kunit_case mmix_boot_cases[] = { KUNIT_CASE(boot_inputs),
 					       KUNIT_CASE(preemption),
 					       {} };
 
+/* The local preemption case must compete on the controller CPU. */
+static int mmix_boot_test_init(struct kunit *test)
+{
+	return set_cpus_allowed_ptr(current, cpumask_of(0));
+}
+
 static struct kunit_suite mmix_boot_suite = {
 	.name = "mmix_boot",
+	.init = mmix_boot_test_init,
 	.test_cases = mmix_boot_cases,
 };
 

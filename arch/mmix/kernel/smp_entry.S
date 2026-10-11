@@ -9,7 +9,7 @@
 mmix_secondary_start:
 	/* Only private loader registers are touched before the slot is claimed. */
 	PUT rK,0
-	CMPU r255,r0,MMIX_BOOT_CPU_SLOTS
+	CMPU r255,r0,CONFIG_NR_CPUS
 	BNN r255,.Lsecondary_halt
 	MULU r255,r0,SECONDARY_SIZE
 	GETA r250,%geta(mmix_secondary_boot)
@@ -38,7 +38,6 @@ mmix_secondary_start:
 	LDOU r255,r250,SECONDARY_RELEASE
 	BZB r255,.Lsecondary_wait
 	SYNC 3
-#ifdef CONFIG_SMP
 	LDOU r255,r250,SECONDARY_VECTOR
 	PUT rT,r255
 	GETA r255,%geta(mmix_secondary_fault)
@@ -52,7 +51,6 @@ mmix_secondary_start:
 	LDOU r255,r250,SECONDARY_SEED
 	UNSAVE r255
 	PUSHJ r31,mmix_secondary_park
-#endif
 	JMP .Lsecondary_early_fault
 .Lsecondary_duplicate:
 	SETL r255,MMIX_SECONDARY_FAILED
@@ -86,7 +84,6 @@ mmix_secondary_fault:
 	ADDU r250,r250,r255
 	JMPB .Lsecondary_early_fault
 
-#ifdef CONFIG_SMP
 .globl mmix_enter_secondary
 mmix_enter_secondary:
 	PUT rK,0
@@ -98,7 +95,6 @@ mmix_enter_secondary:
 	PUSHJ r31,mmix_secondary_main
 	GETA r255,%geta(mmix_secondary_fault)
 	GO r255,r255,0
-#endif
 
 /* QEMU loads this initialized section before starting any CPU. */
 .data
@@ -106,7 +102,7 @@ mmix_enter_secondary:
 .globl mmix_secondary_boot
 mmix_secondary_boot:
 .set cpu_slot,0
-.rept MMIX_BOOT_CPU_SLOTS
+.rept CONFIG_NR_CPUS
 	.space SECONDARY_CPU
 	.quad cpu_slot
 	.space SECONDARY_SIZE-SECONDARY_CPU-8

@@ -17,7 +17,7 @@
 #define MMIX_TIMER_IRQ_ENABLE BIT_ULL(1)
 #define MMIX_TIMER_PENDING BIT_ULL(0)
 
-static struct mmix_timer timers[MMIX_BOOT_CPU_SLOTS];
+static struct mmix_timer timers[CONFIG_NR_CPUS];
 #define boot_timer timers[0]
 #ifdef CONFIG_MMIX_BOOT_TEST
 static unsigned long timer_irqs;

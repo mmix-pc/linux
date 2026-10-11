@@ -23,7 +23,7 @@ struct mmix_boot_info {
 	unsigned long stack_size;
 	unsigned long uart;
 	unsigned int nr_cpus;
-	unsigned long loader_stack[MMIX_BOOT_CPU_SLOTS];
+	unsigned long loader_stack[CONFIG_NR_CPUS];
 };
 
 /* Call only after mmix_early_boot has validated and published the information. */

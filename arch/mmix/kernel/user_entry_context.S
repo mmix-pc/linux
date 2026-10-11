@@ -2,11 +2,7 @@
 #include <generated/asm-offsets.h>
 #include <asm/cpu_local.h>
 .text
-#ifdef CONFIG_SMP
 #define MMIX_USER_IRQ_MASK 768
-#else
-#define MMIX_USER_IRQ_MASK 256
-#endif
 .balign 4
 .globl mmix_user_run
 mmix_user_run:

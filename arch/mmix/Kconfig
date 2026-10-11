@@ -12,7 +12,7 @@ config MMIX
 	select GENERIC_IRQ_MULTI_HANDLER
 	select GENERIC_IRQ_SHOW
 	select GENERIC_SCHED_CLOCK
-	select GENERIC_SMP_IDLE_THREAD if SMP
+	select GENERIC_SMP_IDLE_THREAD
 	select HAVE_EXIT_THREAD
 	select HAVE_ARCH_VMAP_STACK
 	select HAVE_PAGE_SIZE_8KB
@@ -52,45 +52,30 @@ config PGTABLE_LEVELS
 	default 3
 
 config SMP
-	bool "MMIX multiprocessor boot preparation"
+	def_bool y
 	help
-	  Discover and prepare the fixed platform CPU population. Secondary CPUs
-	  remain parked with interrupts masked and are not brought online until
-	  interrupt, timer and remote MMU services are implemented. This staging
-	  option does not yet enable multiprocessor scheduling. Leave disabled
-	  for the qualified single-CPU environment.
+	  MMIX kernels support a fixed platform CPU population, including
+	  single-CPU machines, through the SMP scheduling and interrupt paths.
 
 config NR_CPUS
-	int
-	range 2 4 if SMP
-	default 4 if SMP
-	default 1
-
-config MMIX_SMP_KERNEL
-	bool "MMIX multiprocessor scheduling"
-	depends on SMP
-	help
-	  Bring prepared CPUs online with normal idle tasks and local clock
-	  events, acknowledged remote MMU maintenance and native user entry.
-	  Leave disabled for preparation-only or qualified UP profiles.
+	int "Maximum number of CPUs"
+	range 1 64
+	default 4
 
 source "kernel/Kconfig.hz"
 
 config MMIX_THREAD_ENTRY
 	bool "MMIX native thread entry"
 	depends on VMAP_STACK && PREEMPTION
-	depends on !SMP || MMIX_SMP_KERNEL
 	help
-	  Enable the selected raw clone thread-entry profile. Keep disabled in
-	  ordinary configurations until thread-group lifecycle and directed
-	  signal handling have been qualified together with the userspace
-	  runtime. This option does not provide pthread or compiler TLS support.
+	  Enable the selected raw clone thread-entry profile. The kernel preserves
+	  the supplied thread pointer and provides thread-group lifecycle and directed signals.
+	  Userspace libraries provide pthread and compiler TLS support.
 
 config MMIX_BOOT_TEST
 	bool "MMIX integrated boot tests"
 	depends on KUNIT=y
 	depends on VMAP_STACK && PREEMPTION
-	depends on !SMP
 	select CRC32
 	help
 	  Exercise memory, exception, interrupt, thread and timer integration

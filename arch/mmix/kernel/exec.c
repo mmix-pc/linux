@@ -11,13 +11,15 @@
 
 int mmix_elf_check(const struct elf64_hdr *hdr)
 {
-	return hdr->e_machine == EM_MMIX && hdr->e_type == ET_EXEC &&
+	return hdr->e_machine == EM_MMIX &&
+	       (hdr->e_type == ET_EXEC || hdr->e_type == ET_DYN) &&
 	       hdr->e_version == EV_CURRENT && hdr->e_ehsize == sizeof(*hdr) &&
 	       hdr->e_ident[EI_VERSION] == EV_CURRENT && hdr->e_ident[EI_CLASS] == ELFCLASS64 &&
 	       hdr->e_ident[EI_DATA] == ELFDATA2MSB &&
 	       (hdr->e_ident[EI_OSABI] == ELFOSABI_NONE ||
 		hdr->e_ident[EI_OSABI] == ELFOSABI_LINUX) &&
-	       !hdr->e_flags && !(hdr->e_entry & 3) && hdr->e_entry >= PAGE_SIZE &&
+	       !hdr->e_flags && !(hdr->e_entry & 3) &&
+	       (hdr->e_type == ET_DYN || hdr->e_entry >= PAGE_SIZE) &&
 	       hdr->e_entry < TASK_SIZE;
 }
 
@@ -29,30 +31,23 @@ int arch_elf_pt_proc(void *ehdr, void *phdr, struct file *file, bool is_interp,
 
 int arch_check_elf(void *ehdr, bool has_interp, void *interp_ehdr, struct arch_elf_state *state)
 {
-	/* Dynamic loading requires its separate entry and runtime contract. */
-	return has_interp ? -ENOEXEC : 0;
+	const struct elf64_hdr *main = ehdr;
+	const struct elf64_hdr *interp = interp_ehdr;
+
+	/* ET_DYN is admitted as a main image only with an interpreter. */
+	if (!has_interp)
+		return main->e_type == ET_EXEC ? 0 : -ENOEXEC;
+	return interp->e_type == ET_DYN ? 0 : -ENOEXEC;
 }
 
 int mmix_setup_exec(struct linux_binprm *bprm, const struct elf64_hdr *hdr)
 {
 	struct mmix_user_rstack_state *stack;
 	struct mmix_user_state *state;
-	struct vm_area_struct *vma;
 	unsigned long mapped;
 	u64 chain;
-	int error = -ENOEXEC;
+	int error;
 
-	mmap_read_lock(current->mm);
-	vma = find_vma(current->mm, 0);
-	if (vma && vma->vm_start < PAGE_SIZE)
-		goto unlock;
-	vma = find_vma(current->mm, hdr->e_entry);
-	if (vma && vma->vm_start <= hdr->e_entry && (vma->vm_flags & VM_EXEC))
-		error = 0;
-unlock:
-	mmap_read_unlock(current->mm);
-	if (error)
-		return error;
 	stack = mmix_user_rstack_alloc();
 	if (!stack)
 		return -ENOMEM;

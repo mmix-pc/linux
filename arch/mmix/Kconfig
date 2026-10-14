@@ -70,6 +70,7 @@ source "kernel/Kconfig.hz"
 config MMIX_THREAD_ENTRY
 	bool "MMIX native thread entry"
 	depends on VMAP_STACK && PREEMPTION
+	default y
 	help
 	  Enable the selected raw clone thread-entry profile. The kernel preserves
 	  the supplied thread pointer and provides thread-group lifecycle and directed signals.

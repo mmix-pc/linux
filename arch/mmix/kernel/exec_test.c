@@ -25,6 +25,7 @@
 
 struct exec_test {
 	bool shared;
+	bool relocated_data;
 	unsigned long old_backing;
 	int fd;
 	int entries;
@@ -91,8 +92,13 @@ static int check_initial(struct mmix_user_entry *entry, struct exec_test *t)
 	}
 	if (tags != 511 || i == 64)
 		return 8;
-	if (get_user(value, (unsigned long __user *)t->bss) || value)
+	if (t->relocated_data) {
+		/* The code still refers to the original, now unmapped BSS. */
+		if (get_user(value, (unsigned long __user *)t->bss) != -EFAULT)
+			return 9;
+	} else if (get_user(value, (unsigned long __user *)t->bss) || value) {
 		return 9;
+	}
 	if (put_user(1UL, (unsigned long __user *)regs->r_o) ||
 	    get_user(value, (unsigned long __user *)(regs->r_o - 8)) != -EFAULT ||
 	    get_user(value, (unsigned long __user *)(regs->r_o + (1UL << 20))) != -EFAULT)
@@ -290,6 +296,7 @@ static void exec_images(struct kunit *test)
 			break;
 		case 16:
 			phdr[1].p_vaddr = 0;
+			t.relocated_data = true;
 			break;
 		case 17:
 			hdr->e_flags = 1;
@@ -344,8 +351,13 @@ static void exec_images(struct kunit *test)
 			KUNIT_EXPECT_EQ(test, t.entries, 2);
 			KUNIT_EXPECT_EQ(test, t.calls, 2UL);
 		}
+		if (variant == 8 || variant == 16) {
+			/* Loading succeeds; instruction fetch or data access faults. */
+			KUNIT_EXPECT_EQ(test, t.entries, variant == 16 ? 1 : 0);
+			KUNIT_EXPECT_EQ(test, t.calls, 1UL);
+		}
 		KUNIT_EXPECT_EQ(test, t.post_failures,
-				expected_status ? 1U : 0U);
+				expected_status && variant != 8 && variant != 16 ? 1U : 0U);
 		concurrent_faults += t.concurrent_faults;
 		mmix_user_rstack_fail_after(-1);
 		KUNIT_EXPECT_EQ(test, close_fd(t.fd), 0);

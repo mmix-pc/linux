@@ -95,10 +95,10 @@ void mmix_exception_dispatch(struct mmix_entry_state *entry, struct pt_regs *reg
 	WRITE_ONCE(entry->busy, 0);
 	if (regs->r_xx >> 32 == 0x03000000UL) {
 		/* Missing-leaf data fault admitted by the stackless refill path. */
-		if (mmix_handle_page_fault(regs) && !fixup_exception(regs))
+		if (mmix_handle_page_fault(regs, NULL) && !fixup_exception(regs))
 			mmix_exception_fatal();
 	} else if (pending & MMIX_KERNEL_FAULT_MASK) {
-		if (mmix_handle_page_fault(regs) && !fixup_exception(regs))
+		if (mmix_handle_page_fault(regs, NULL) && !fixup_exception(regs))
 			mmix_exception_fatal();
 		mmix_ack_requests(pending & MMIX_KERNEL_FAULT_MASK);
 	} else if (pending & MMIX_IRQ_EXTERNAL) {

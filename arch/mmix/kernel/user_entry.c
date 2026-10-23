@@ -47,12 +47,18 @@ int mmix_user_write(void *data, unsigned long address, const void *source, size_
 
 int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 {
+	struct mmix_fault_info info;
+
 	if (entry->event != MMIX_USER_FAULT)
 		return -EOPNOTSUPP;
-	entry->fatal_signal = mmix_handle_page_fault(&entry->regs);
+	entry->fatal_signal = mmix_handle_page_fault(&entry->regs, &info);
 	if (entry->fatal_signal && current->thread.rstack_chain) {
 		local_irq_enable();
-		force_sig(entry->fatal_signal);
+		if (entry->fatal_signal == SIGSEGV || entry->fatal_signal == SIGBUS)
+			force_sig_fault(entry->fatal_signal, info.code,
+					(void __user *)info.address);
+		else
+			force_sig(entry->fatal_signal);
 		local_irq_disable();
 		entry->fatal_signal = 0;
 	}

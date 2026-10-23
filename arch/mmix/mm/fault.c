@@ -60,8 +60,9 @@ int mmix_refresh_translation(struct pt_regs *regs)
 	return signal;
 }
 
-int mmix_handle_page_fault(struct pt_regs *regs)
+int mmix_handle_page_fault(struct pt_regs *regs, struct mmix_fault_info *info)
 {
+	struct mmix_fault_info unused;
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma;
 	unsigned long address = regs->r_yy;
@@ -72,6 +73,11 @@ int mmix_handle_page_fault(struct pt_regs *regs)
 	vm_fault_t fault;
 	int signal = SIGSEGV;
 	bool user = user_mode(regs);
+
+	if (!info)
+		info = &unused;
+	info->address = address;
+	info->code = SEGV_MAPERR;
 
 	if (requests & (1UL << 36))
 		return SIGSEGV;
@@ -105,6 +111,7 @@ int mmix_handle_page_fault(struct pt_regs *regs)
 			return signal;
 		}
 	}
+	info->address = address;
 	if (!access_ok((void __user *)address, 1) || !mm || faulthandler_disabled())
 		return signal;
 	/* A kernel access may sleep only if its interrupted IRQ state allowed it. */
@@ -122,6 +129,7 @@ retry:
 	if (!vma)
 		goto out;
 	if (!(vma->vm_flags & access)) {
+		info->code = SEGV_ACCERR;
 		mmap_read_unlock(mm);
 		goto out;
 	}
@@ -147,6 +155,7 @@ retry:
 		}
 		signal = SIGKILL;
 	} else if (fault & (VM_FAULT_SIGBUS | VM_FAULT_HWPOISON | VM_FAULT_HWPOISON_LARGE)) {
+		info->code = BUS_ADRERR;
 		signal = SIGBUS;
 	} else if (!(fault & VM_FAULT_ERROR)) {
 		local_flush_tlb_all();

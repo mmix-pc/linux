@@ -85,6 +85,12 @@ SYSCALL_DEFINE5(clone, unsigned long, flags, unsigned long, stack,
 			return -EOPNOTSUPP;
 		return kernel_clone(&args);
 	}
+	if (flags == (CLONE_VFORK | SIGCHLD)) {
+		if (stack || parent_tid || child_tid || tls)
+			return -EOPNOTSUPP;
+		args.flags = CLONE_VFORK;
+		return kernel_clone(&args);
+	}
 	if (flags == (CLONE_VM | CLONE_VFORK | SIGCHLD)) {
 		if (stack)
 			return -EOPNOTSUPP;

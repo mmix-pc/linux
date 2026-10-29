@@ -171,8 +171,9 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 			    args->exit_signal || !args->stack || (args->stack & 7) ||
 			    args->stack >= TASK_SIZE || task->mm != current->mm)
 				return -EOPNOTSUPP;
-		} else if ((args->flags && args->flags != (CLONE_VM | CLONE_VFORK)) ||
-			   (args->flags && !current->thread.vfork_prepare) ||
+		} else if ((args->flags && args->flags != CLONE_VFORK &&
+			    args->flags != (CLONE_VM | CLONE_VFORK)) ||
+			   ((args->flags & CLONE_VM) && !current->thread.vfork_prepare) ||
 			   args->stack || args->exit_signal != SIGCHLD) {
 			return -EOPNOTSUPP;
 		}
@@ -268,7 +269,7 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 			if (err)
 				goto fail;
 		}
-		if (!user_thread && args->flags) {
+		if (!user_thread && (args->flags & CLONE_VM)) {
 			err = mmix_vfork_attach(task);
 			if (err)
 				goto fail;

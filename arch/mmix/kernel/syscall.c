@@ -162,8 +162,12 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		*regs = *task_pt_regs(current);
 		return 0;
 	}
-	/* A failed exec past its commit point cannot return to the old image. */
-	if (current->thread.exec_committed || fatal_signal_pending(current) ||
+	/*
+	 * A failed exec past its commit point cannot return to the old image.
+	 * Ordinary pending fatal signals must reach get_signal(), which marks
+	 * signaled peers for inclusion in a thread-group core dump.
+	 */
+	if (current->thread.exec_committed ||
 	    ((nr == __NR_execve || nr == __NR_execveat) && result < 0 &&
 	     signal_pending(current) && sigismember(&current->pending.signal, SIGSEGV))) {
 		entry->fatal_signal = fatal_signal_pending(current) ? SIGKILL : SIGSEGV;

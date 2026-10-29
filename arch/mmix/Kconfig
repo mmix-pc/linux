@@ -27,10 +27,6 @@ config MMIX
 	select SPARSE_IRQ
 	select THREAD_INFO_IN_TASK
 
-# ELF core register capture and register-stack writeback are not implemented.
-config COREDUMP
-	default n
-
 config 64BIT
 	bool
 	default y

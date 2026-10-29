@@ -16,6 +16,7 @@
 	} while (0)
 #define ELF_PLATFORM NULL
 #define ELF_ET_DYN_BASE (TASK_SIZE / 3 * 2)
+#define CORE_DUMP_USE_REGSET
 
 #define elf_check_arch(hdr) mmix_elf_check(hdr)
 struct elf64_hdr;
@@ -38,6 +39,6 @@ int mmix_setup_exec(struct linux_binprm *bprm, const struct elf64_hdr *hdr);
 typedef unsigned long elf_greg_t;
 #define ELF_NGREG (sizeof(struct user_regs_struct) / sizeof(elf_greg_t))
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
-/* No independent floating-register bank or NT_PRFPREG payload. */
+/* Opaque compatibility type: no FP bank or NT_PRFPREG instance in the regset path. */
 typedef struct mmix_fpregset elf_fpregset_t;
 #endif

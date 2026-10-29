@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/errno.h>
 #include <linux/mm.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include "user_rstack.h"
 
@@ -106,6 +107,16 @@ struct mmix_user_rstack_state *mmix_user_rstack_dup(const struct mmix_user_rstac
 
 struct mmix_user_state *mmix_user_rstack_state(struct mmix_user_rstack_state *stack)
 {
+	return &stack->state;
+}
+
+const struct mmix_user_state *mmix_user_rstack_snapshot(struct task_struct *task)
+{
+	const struct mmix_user_rstack_state *stack = task->thread.user_state;
+
+	/* Core and ptrace callers hold the task stopped for the entire read. */
+	if (!stack || mmix_user_rstack_validate(&stack->state))
+		return ERR_PTR(-EIO);
 	return &stack->state;
 }
 

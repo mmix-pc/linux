@@ -28,6 +28,8 @@ void mmix_user_rstack_free(struct mmix_user_rstack_state **owner);
 struct mmix_user_rstack_state *mmix_user_rstack_dup(const struct mmix_user_rstack_state *source);
 /* Accessed only while the owner is quiescent on a trusted kernel stack. */
 struct mmix_user_state *mmix_user_rstack_state(struct mmix_user_rstack_state *stack);
+/* Borrowed until the current or quiescent target resumes or releases its state. */
+const struct mmix_user_state *mmix_user_rstack_snapshot(struct task_struct *task);
 void *mmix_user_rstack_shadow(struct mmix_user_rstack_state *stack);
 void *mmix_user_rstack_continuation(struct mmix_user_rstack_state *stack);
 int mmix_user_rstack_window(const struct mmix_user_capture *capture, unsigned long *base,

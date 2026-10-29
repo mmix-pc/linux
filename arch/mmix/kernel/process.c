@@ -152,10 +152,6 @@ static int user_child(void *unused)
 int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 {
 	struct mmix_rstack *stack;
-	const unsigned long thread_flags = CLONE_VM | CLONE_FS | CLONE_FILES |
-		CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
-		CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
-	const unsigned long optional_flags = CLONE_SETTLS | CLONE_CHILD_SETTID;
 	bool user_thread = !args->fn && (args->flags & CLONE_THREAD);
 	unsigned long base;
 	unsigned int i;
@@ -166,16 +162,17 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 		if (!current->thread.user_state || args->stack_size)
 			return -EOPNOTSUPP;
 		if (user_thread) {
-			if (!IS_ENABLED(CONFIG_MMIX_THREAD_ENTRY) ||
-			    (args->flags & ~optional_flags) != thread_flags ||
-			    args->exit_signal || !args->stack || (args->stack & 7) ||
-			    args->stack >= TASK_SIZE || task->mm != current->mm)
+			if (!IS_ENABLED(CONFIG_MMIX_THREAD_ENTRY))
 				return -EOPNOTSUPP;
-		} else if ((args->flags && args->flags != CLONE_VFORK &&
-			    args->flags != (CLONE_VM | CLONE_VFORK)) ||
-			   ((args->flags & CLONE_VM) && !current->thread.vfork_prepare) ||
-			   args->stack || args->exit_signal != SIGCHLD) {
-			return -EOPNOTSUPP;
+			if (!args->stack || (args->stack & 7) ||
+			    args->stack >= TASK_SIZE || task->mm != current->mm)
+				return -EINVAL;
+		} else {
+			if (args->stack)
+				return -EOPNOTSUPP;
+			if ((args->flags & CLONE_VM) &&
+			    (!(args->flags & CLONE_VFORK) || !current->thread.vfork_prepare))
+				return -EOPNOTSUPP;
 		}
 	}
 	if (rstack_fail())
@@ -248,13 +245,14 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 			state->regs.regs[253] = 0;
 			state->regs.regs[254] = args->stack;
 			state->regs.regs[231] = 0;
-			if (args->flags & CLONE_SETTLS)
-				state->regs.regs[230] = args->tls;
+
 			memset(&state->pending, 0, sizeof(state->pending));
 			state->pending.start = root;
 		} else {
 			task->thread.rstack_chain = current->thread.rstack_chain;
 		}
+		if (args->flags & CLONE_SETTLS)
+			state->regs.regs[230] = args->tls;
 		if (!user_thread && task->thread.rstack_chain) {
 			task->thread.rstack_owner =
 				mmix_rstack_owner_alloc(task->mm, task->thread.rstack_chain);

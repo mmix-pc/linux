@@ -232,7 +232,7 @@ static void numbers_and_errors(struct kunit *test)
 	KUNIT_ASSERT_NOT_NULL(test, regs);
 	for (i = 0; i < ARRAY_SIZE(invalid); i++)
 		KUNIT_EXPECT_EQ(test, call_user(t, invalid[i], 0, 0, 0, 0, 0, 0), -ENOSYS);
-	KUNIT_EXPECT_EQ(test, call_user(t, __NR_clone, 0, 0, 0, 0, 0, 0), -EOPNOTSUPP);
+	KUNIT_EXPECT_EQ(test, call_user(t, __NR_clone, CLONE_SIGHAND, 0, 0, 0, 0, 0), -EINVAL);
 	KUNIT_EXPECT_EQ(test, call_user(t, __NR_clone, SIGCHLD | CLONE_VM, 0, 0, 0, 0, 0),
 			-EOPNOTSUPP);
 	KUNIT_EXPECT_EQ(test,

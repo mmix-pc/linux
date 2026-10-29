@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/atomic.h>
 #include <linux/init.h>
 #include <linux/irq.h>
 #include <linux/of_address.h>
@@ -20,7 +21,7 @@
 static struct mmix_timer timers[CONFIG_NR_CPUS];
 #define boot_timer timers[0]
 #ifdef CONFIG_MMIX_BOOT_TEST
-static unsigned long timer_irqs;
+static atomic_long_t timer_irqs = ATOMIC_LONG_INIT(0);
 static bool drop_events;
 static bool freeze_source;
 static u64 frozen_cycles;
@@ -38,7 +39,7 @@ void mmix_timer_freeze_source(void)
 
 unsigned long mmix_timer_irq_count(void)
 {
-	return READ_ONCE(timer_irqs);
+	return atomic_long_read(&timer_irqs);
 }
 #endif
 
@@ -99,7 +100,7 @@ irqreturn_t mmix_timer_interrupt(int irq, void *data)
 	timer->interrupts++;
 	/* Generic IRQ EOI follows this callback, after device quiescence. */
 #ifdef CONFIG_MMIX_BOOT_TEST
-	timer_irqs++;
+	atomic_long_inc(&timer_irqs);
 	if (READ_ONCE(drop_events))
 		return IRQ_HANDLED;
 #endif
@@ -157,7 +158,8 @@ int mmix_timer_test_mask(struct mmix_timer_mask_result *result)
 	preempt_disable();
 	local_irq_save(flags);
 	mmix_irq_test_counts(&claims, &completions);
-	before = timer_irqs;
+	/* The suite runs on CPU0; other CPUs' timer IRQs remain enabled. */
+	before = boot_timer.interrupts;
 	chip->irq_mask(data);
 	/* Host scheduling may expire the comparator while it is programmed. */
 	for (i = 0; i < 8; i++) {
@@ -172,15 +174,15 @@ int mmix_timer_test_mask(struct mmix_timer_mask_result *result)
 		cpu_relax();
 	local_irq_save(flags);
 	result->pending = ioread64be(boot_timer.context + MMIX_TIMER_STATUS);
-	result->masked_irqs = timer_irqs - before;
+	result->masked_irqs = boot_timer.interrupts - before;
 	chip->irq_unmask(data);
 	local_irq_restore(flags);
 	start = ioread64be(boot_timer.counter);
-	for (i = 0; i < 2000000 && mmix_timer_irq_count() == before &&
+	for (i = 0; i < 2000000 && READ_ONCE(boot_timer.interrupts) == before &&
 	     ioread64be(boot_timer.counter) - start < 100000000; i++)
 		cpu_relax();
 	local_irq_save(flags);
-	result->delivered_irqs = timer_irqs - before;
+	result->delivered_irqs = boot_timer.interrupts - before;
 	mmix_irq_test_counts(&result->claims, &result->completions);
 	result->claims -= claims;
 	result->completions -= completions;

@@ -536,7 +536,7 @@ static struct kunit_case mmix_boot_cases[] = { KUNIT_CASE(boot_inputs),
 					       KUNIT_CASE(preemption),
 					       {} };
 
-/* The local preemption case must compete on the controller CPU. */
+/* Timer diagnostics own CPU0's clockevent; local preemption must run here too. */
 static int mmix_boot_test_init(struct kunit *test)
 {
 	return set_cpus_allowed_ptr(current, cpumask_of(0));

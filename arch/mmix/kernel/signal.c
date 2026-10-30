@@ -257,7 +257,7 @@ int mmix_signal_pending(struct mmix_user_entry *entry, bool materialized)
 	bool deliver, restarted;
 	int error;
 
-	*task_pt_regs(current) = entry->regs;
+	mmix_ptrace_publish(entry);
 	deliver = get_signal(&ksig);
 	restarted = syscall_restart(entry, deliver ? &ksig : NULL);
 	if (!deliver) {

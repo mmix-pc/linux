@@ -4,9 +4,10 @@
 #include <linux/sched/debug.h>
 #include <linux/regset.h>
 #include <linux/sched/task_stack.h>
-#include <linux/uio.h>
+#include <linux/slab.h>
+#include <linux/sched/signal.h>
 #include <asm/elf.h>
-#include "user_rstack.h"
+#include "user_entry.h"
 
 struct pt_regs *task_pt_regs(struct task_struct *task)
 {
@@ -17,6 +18,120 @@ struct pt_regs *task_pt_regs(struct task_struct *task)
 void ptrace_disable(struct task_struct *task)
 {
 	clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+}
+
+/* Publish the logical bank without exposing or replacing privileged state. */
+static void copy_user_regs(struct pt_regs *to, const struct user_regs_struct *from)
+{
+	memcpy(to->regs, from->regs, sizeof(to->regs));
+	to->pc = from->pc;
+	to->r_g = from->r_g;
+	to->r_l = from->r_l;
+	to->r_o = from->r_o;
+	to->r_a = from->r_a;
+	to->r_b = from->r_b;
+	to->r_d = from->r_d;
+	to->r_e = from->r_e;
+	to->r_h = from->r_h;
+	to->r_j = from->r_j;
+	to->r_m = from->r_m;
+	to->r_p = from->r_p;
+	to->r_r = from->r_r;
+	to->r_w = from->r_w;
+	to->r_x = from->r_x;
+	to->r_y = from->r_y;
+	to->r_z = from->r_z;
+}
+
+void mmix_ptrace_publish(struct mmix_user_entry *entry)
+{
+	copy_user_regs(&entry->regs, &mmix_user_rstack_state(entry->stack)->regs);
+	*task_pt_regs(current) = entry->regs;
+}
+
+static void commit_state(struct task_struct *target, const struct mmix_user_state *next)
+{
+	struct mmix_user_state *state = mmix_user_rstack_state(target->thread.user_state);
+	struct mmix_user_entry *entry = target->thread.user_entry;
+	struct pt_regs *regs = task_pt_regs(target);
+	bool redirect = next->regs.pc != state->regs.pc;
+	bool cancel_restart = redirect ||
+		memcmp(next->regs.regs + 231, state->regs.regs + 231,
+		       7 * sizeof(unsigned long));
+
+	if (!memcmp(state, next, sizeof(*state)))
+		return;
+	*state = *next;
+	copy_user_regs(regs, &state->regs);
+	/* A changed context must never reuse hidden instruction operands. */
+	regs->r_ww = state->regs.pc;
+	regs->r_xx = 1UL << 63;
+	regs->r_yy = 0;
+	regs->r_zz = 0;
+	if (cancel_restart)
+		target->restart_block.fn = do_no_restart_syscall;
+	/* Exec can stop after replacing user_state, before adopting the new entry. */
+	if (entry && entry->stack == target->thread.user_state) {
+		if (entry->syscall_entry) {
+			regs->syscall_nr = state->regs.regs[237];
+			memcpy(regs->syscall_args, state->regs.regs + 231,
+			       sizeof(regs->syscall_args));
+		}
+		entry->regs = *regs;
+		if (cancel_restart)
+			entry->syscall_result = false;
+		entry->rstack_sync_pending = false;
+		entry->rstack_query_pending = false;
+		entry->ptrace_redirect |= redirect;
+	}
+}
+
+static int mmix_regset_set(struct task_struct *target, const struct user_regset *regset,
+			   unsigned int pos, unsigned int count,
+			   const void *kbuf, const void __user *ubuf)
+{
+	const struct mmix_user_state *old = mmix_user_rstack_snapshot(target);
+	struct mmix_user_state *next;
+	void *bank;
+	unsigned int size;
+	int error;
+
+	if (IS_ERR(old))
+		return PTR_ERR(old);
+	next = kvmalloc_obj(*next);
+	if (!next)
+		return -ENOMEM;
+	*next = *old;
+	if (regset->core_note_type == NT_PRSTATUS) {
+		bank = &next->regs;
+		size = sizeof(next->regs);
+	} else {
+		bank = &next->pending;
+		size = sizeof(next->pending);
+	}
+	error = user_regset_copyin(&pos, &count, &kbuf, &ubuf, bank, 0, size);
+	if (error)
+		goto out;
+	/* No chain transfer or silent loss of older frames through a regset write. */
+	if (next->regs.r_o != old->regs.r_o ||
+	    next->pending.start != old->pending.start ||
+	    next->pending.count != old->pending.count) {
+		error = -EINVAL;
+		goto out;
+	}
+	error = mmix_user_rstack_validate(next);
+	if (error)
+		goto out;
+	/* An unchanged partial instruction retains its private replay exactly. */
+	if (!(task_pt_regs(target)->r_xx >> 63) &&
+	    next->regs.pc == old->regs.pc && memcmp(old, next, sizeof(*old))) {
+		error = -EOPNOTSUPP;
+		goto out;
+	}
+	commit_state(target, next);
+out:
+	kvfree(next);
+	return error;
 }
 
 static int mmix_gpr_get(struct task_struct *target, const struct user_regset *regset,
@@ -39,7 +154,7 @@ static int mmix_rstack_get(struct task_struct *target, const struct user_regset 
 	return membuf_write(&to, &state->pending, sizeof(state->pending));
 }
 
-/* Both notes read the same owned snapshot; dumping must not flush or alter it. */
+/* Both notes share one owned snapshot; reading must not flush or alter it. */
 static const struct user_regset mmix_user_regsets[] = {
 	{
 		USER_REGSET_NOTE_TYPE(PRSTATUS),
@@ -47,6 +162,7 @@ static const struct user_regset mmix_user_regsets[] = {
 		.size = sizeof(elf_greg_t),
 		.align = sizeof(elf_greg_t),
 		.regset_get = mmix_gpr_get,
+		.set = mmix_regset_set,
 	},
 	{
 		USER_REGSET_NOTE_TYPE(MMIX_RSTACK),
@@ -54,6 +170,7 @@ static const struct user_regset mmix_user_regsets[] = {
 		.size = sizeof(u64),
 		.align = sizeof(u64),
 		.regset_get = mmix_rstack_get,
+		.set = mmix_regset_set,
 	},
 };
 
@@ -69,44 +186,34 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 	return &mmix_regsets;
 }
 
-/* Read-only regsets do not imply the full HAVE_ARCH_TRACEHOOK contract. */
-static int mmix_ptrace_getregset(struct task_struct *child, unsigned long type,
-				struct iovec __user *user_iov)
-{
-	struct iovec iov;
-	unsigned int i;
-	int error;
-
-	if (copy_from_user(&iov, user_iov, sizeof(iov)))
-		return -EFAULT;
-	for (i = 0; i < ARRAY_SIZE(mmix_user_regsets); i++) {
-		const struct user_regset *regset = &mmix_user_regsets[i];
-
-		if (regset->core_note_type != type)
-			continue;
-		if (iov.iov_len % regset->size)
-			return -EINVAL;
-		iov.iov_len = min_t(size_t, iov.iov_len, regset->n * regset->size);
-		error = copy_regset_to_user(child, &mmix_regsets, i, 0,
-					    iov.iov_len, iov.iov_base);
-		if (error)
-			return error;
-		return put_user(iov.iov_len, &user_iov->iov_len);
-	}
-	return -EINVAL;
-}
-
 long arch_ptrace(struct task_struct *child, long request, unsigned long addr,
 		 unsigned long data)
 {
-	switch (request) {
-	case PTRACE_GETREGSET:
-		return mmix_ptrace_getregset(child, addr, (struct iovec __user *)data);
-	case PTRACE_SETREGSET:
+	long error;
+
+	/* A sigreturn exit stop can expose an unfinished user instruction. */
+	if (request == PTRACE_SET_SYSCALL_INFO && !(task_pt_regs(child)->r_xx >> 63))
 		return -EOPNOTSUPP;
-	default:
-		return ptrace_request(child, request, addr, data);
+	error = ptrace_request(child, request, addr, data);
+
+	if (!error && request == PTRACE_SET_SYSCALL_INFO) {
+		struct mmix_user_state *state = mmix_user_rstack_state(child->thread.user_state);
+		struct mmix_user_entry *entry = child->thread.user_entry;
+		struct pt_regs *regs = task_pt_regs(child);
+		bool changed = memcmp(state->regs.regs + 231, regs->regs + 231,
+				      7 * sizeof(unsigned long));
+
+		/* Generic syscall helpers edit pt_regs, not the logical return image. */
+		memcpy(state->regs.regs + 231, regs->regs + 231, 7 * sizeof(unsigned long));
+		if (entry && entry->stack == child->thread.user_state) {
+			entry->regs = *regs;
+			if (changed)
+				entry->syscall_result = false;
+		}
+		if (changed)
+			child->restart_block.fn = do_no_restart_syscall;
 	}
+	return error;
 }
 
 void show_regs(struct pt_regs *regs)

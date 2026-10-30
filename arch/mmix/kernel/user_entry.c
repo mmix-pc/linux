@@ -2,6 +2,8 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/mm.h>
+#include <linux/ptrace.h>
+#include <linux/resume_user_mode.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/sched/signal.h>
@@ -97,6 +99,11 @@ static int prepare_return(struct mmix_user_entry *entry)
 	error = mmix_user_rstack_materialize(entry->stack, entry->ops->write, entry->data);
 	if (domain)
 		mmix_rstack_domain_end(current->mm, domain);
+	if (!error && (entry->rstack_sync_pending || entry->rstack_query_pending)) {
+		/* Backing is now authoritative, including a query output that aliases it. */
+		memset(&state->pending, 0, sizeof(state->pending));
+		state->pending.start = state->regs.r_o;
+	}
 	if (!error && entry->rstack_query_pending) {
 		/* Arbitrary output may fault; never hold the owner mutex across this copy. */
 		state->regs.regs[231] = copy_to_user(entry->rstack_query_output,
@@ -118,6 +125,51 @@ static int prepare_return(struct mmix_user_entry *entry)
 	memcpy(entry->regs.regs, mmix_user_rstack_state(entry->stack)->regs.regs,
 	       sizeof(entry->regs.regs));
 	entry->rstack_sync_pending = false;
+	return 0;
+}
+
+/* Called with IRQs disabled; every sleepable operation is followed by a recheck. */
+static int return_to_user(struct mmix_user_entry *entry)
+{
+	bool native = entry->ops->write == mmix_user_write && current->thread.rstack_chain;
+	int error;
+
+	if (!native)
+		return prepare_return(entry);
+	/* Complete deferred services before a syscall-exit or signal-delivery stop. */
+	if (entry->rstack_sync_pending || entry->rstack_query_pending) {
+		error = prepare_return(entry);
+		if (error)
+			return error;
+	}
+	if (entry->syscall_exit_pending) {
+		entry->syscall_exit_pending = false;
+		mmix_ptrace_publish(entry);
+		local_irq_enable();
+		if (test_syscall_work(SYSCALL_TRACE))
+			ptrace_report_syscall_exit(task_pt_regs(current), 0);
+		local_irq_disable();
+	}
+	for (;;) {
+		local_irq_enable();
+		if (need_resched())
+			schedule();
+		if (test_thread_flag(TIF_NOTIFY_RESUME)) {
+			mmix_ptrace_publish(entry);
+			resume_user_mode_work(task_pt_regs(current));
+		}
+		error = mmix_signal_pending(entry, false);
+		local_irq_disable();
+		if (error < 0)
+			return error;
+		error = prepare_return(entry);
+		if (error)
+			return error;
+		if (!(read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_SIGPENDING |
+					     _TIF_NOTIFY_SIGNAL | _TIF_NOTIFY_RESUME)))
+			break;
+	}
+	/* prepare_return refreshed translations before the final IRQ-off recheck. */
 	return 0;
 }
 
@@ -164,10 +216,15 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 			goto out;
 		}
 	}
-	error = prepare_return(entry);
-	if (error)
-		goto out;
+	/* A traced fork child observes its initial stop before the syscall return. */
+	entry->syscall_exit_pending = test_syscall_work(SYSCALL_TRACE);
 	local_irq_save(flags);
+	error = return_to_user(entry);
+	if (error) {
+		fatal_signal = entry->fatal_signal;
+		local_irq_restore(flags);
+		goto out;
+	}
 	mmix_user_run(entry);
 	error = entry->error;
 	fatal_signal = entry->fatal_signal;
@@ -198,7 +255,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	struct pt_regs *regs = &entry->regs;
 	struct pt_regs *old_regs;
 	unsigned long pending;
-	bool syscall, prepared = false;
+	bool syscall, breakpoint;
 	int error;
 
 	if (entry->error) {
@@ -216,19 +273,22 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 	memcpy(regs->regs, state->regs.regs, sizeof(regs->regs));
 	regs->pc = regs->r_ww;
 	regs->syscall_nr = -1;
+	entry->ptrace_redirect = false;
 	pending = regs->r_q & ((0xffUL << 32) | MMIX_IRQ_EXTERNAL);
 	syscall = (regs->r_xx >> 63) && (u32)regs->r_xx == 0x00010000 &&
 		  !(pending & (0xffUL << 32));
+	breakpoint = (regs->r_xx >> 63) && (u32)regs->r_xx == MMIX_BREAKPOINT_INSN &&
+		     !(pending & (0xffUL << 32));
 	/* Pending IRQs must not consume synchronous forced traps or translations. */
 	if (IS_ENABLED(CONFIG_MMIX_SIGNAL_TEST) && (regs->r_q & BIT_ULL(6)) &&
-	    (regs->r_xx >> 63) && !(pending & (0xffUL << 32)) && !syscall) {
+	    (regs->r_xx >> 63) && !(pending & (0xffUL << 32)) && !syscall && !breakpoint) {
 		/* Optional asynchronous injection; never replace a fault or syscall. */
 		mmix_ack_requests(BIT_ULL(6));
 		local_irq_enable();
 		force_sig(SIGUSR2);
 		local_irq_disable();
-	} else if ((pending & MMIX_IRQ_EXTERNAL) && !(pending & (0xffUL << 32)) && !syscall &&
-	    regs->r_xx >> 32 != 0x03000000UL) {
+	} else if ((pending & MMIX_IRQ_EXTERNAL) && !(pending & (0xffUL << 32)) &&
+		   !syscall && !breakpoint && regs->r_xx >> 32 != 0x03000000UL) {
 		entry->interrupts++;
 		old_regs = set_irq_regs(regs);
 		irq_enter();
@@ -255,8 +315,19 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 				regs->pc -= 4;
 			state->regs.pc = regs->pc;
 		}
-		/* The caller owns syscall/fault policy and any explicit PC adjustment. */
-		error = entry->ops->event(entry, entry->data);
+		if (breakpoint && current->thread.rstack_chain &&
+		    entry->ops->write == mmix_user_write) {
+			/* Suppressing SIGTRAP retries the patched instruction at this PC. */
+			regs->r_ww = regs->pc;
+			regs->r_xx = 1UL << 63;
+			local_irq_enable();
+			force_sig_fault(SIGTRAP, TRAP_BRKPT, (void __user *)regs->pc);
+			local_irq_disable();
+			error = 0;
+		} else {
+			/* The caller owns syscall/fault policy and explicit PC adjustment. */
+			error = entry->ops->event(entry, entry->data);
+		}
 		if (error > 0)
 			return 1;
 		if (error < 0)
@@ -264,26 +335,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		mmix_ack_requests(pending & (0xffUL << 32));
 	}
 	local_irq_disable();
-	if (entry->ops->write == mmix_user_write && current->thread.rstack_chain) {
-		/* Explicit services must complete before a handler can observe them. */
-		if (entry->rstack_sync_pending || entry->rstack_query_pending) {
-			error = prepare_return(entry);
-			if (error)
-				goto failed;
-			prepared = true;
-		}
-		local_irq_enable();
-		error = mmix_signal_pending(entry, prepared);
-		local_irq_disable();
-		if (error < 0)
-			goto failed;
-		if (error > 0)
-			prepared = false;
-	}
-	error = prepared ? 0 : prepare_return(entry);
-	/* Refresh after the last faultable/schedulable signal step with IRQs masked. */
-	if (!error && entry->ops->write == mmix_user_write)
-		error = mmix_refresh_translation(regs) ? -EFAULT : 0;
+	error = return_to_user(entry);
 	if (!error)
 		return 0;
 failed:

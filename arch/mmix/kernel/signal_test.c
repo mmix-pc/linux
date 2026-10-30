@@ -9,6 +9,7 @@
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/uaccess.h>
+#include <linux/task_work.h>
 #include <asm/cacheflush.h>
 #include <asm/rstack.h>
 #include <asm/unistd.h>
@@ -31,10 +32,25 @@ struct signal_test {
 	u64 root;
 	unsigned int escaped;
 	unsigned int steps, restored;
+	struct callback_head resume_work;
+	unsigned int resume_callbacks;
+	bool resume_queued, resume_checked;
 	struct kunit *test;
 	struct mmix_user_state expected;
 	struct pt_regs expected_regs;
 };
+
+/* Requeue once: returning to user must also clear the newly set resume flag. */
+static void resume_work(struct callback_head *work)
+{
+	struct signal_test *t = container_of(work, struct signal_test, resume_work);
+
+	KUNIT_EXPECT_FALSE(t->test, irqs_disabled());
+	if (!t->resume_callbacks)
+		KUNIT_EXPECT_FALSE(t->test, test_thread_flag(TIF_NOTIFY_RESUME));
+	if (++t->resume_callbacks == 1)
+		KUNIT_EXPECT_EQ(t->test, task_work_add(current, work, TWA_RESUME), 0);
+}
 
 /* Deliberately deny one backing read to expose a real partial POP. */
 static void backing_read(unsigned long address, bool allow)
@@ -87,6 +103,14 @@ static int signal_event(struct mmix_user_entry *entry, void *data)
 			t->injections++;
 		}
 		return 0;
+	}
+	if (!t->mode && t->resume_queued && !t->resume_checked &&
+	    entry->event == MMIX_USER_SYSCALL) {
+		KUNIT_EXPECT_EQ(t->test, t->resume_callbacks, 2U);
+		KUNIT_EXPECT_FALSE(t->test, test_thread_flag(TIF_NOTIFY_RESUME));
+		t->resume_checked = true;
+		pr_info("MMIX_PTRACE resume_work callbacks=%u flag=%d\n",
+			t->resume_callbacks, test_thread_flag(TIF_NOTIFY_RESUME));
 	}
 	if (entry->event == MMIX_USER_SYSCALL) {
 		if (nr == __NR_read && (mode == 25 || mode == 26)) {
@@ -183,6 +207,12 @@ static int signal_event(struct mmix_user_entry *entry, void *data)
 	    entry->event == MMIX_USER_SYSCALL &&
 	    entry->regs.syscall_nr == __NR_kill)
 		mmix_rstack_domain_fail_after(mode == 11 ? 0 : mode - 71);
+	if (!t->mode && !t->resume_queued && !error &&
+	    entry->event == MMIX_USER_SYSCALL && nr == __NR_rt_sigaction) {
+		init_task_work(&t->resume_work, resume_work);
+		KUNIT_EXPECT_EQ(t->test, task_work_add(current, &t->resume_work, TWA_RESUME), 0);
+		t->resume_queued = true;
+	}
 	return error;
 }
 
@@ -358,6 +388,10 @@ static void delivery_return_case(struct kunit *test)
 			usleep_range(10000, 11000);
 		KUNIT_EXPECT_EQ(test, mmix_signal_live(), baseline);
 		KUNIT_EXPECT_EQ_MSG(test, status, expected->status, "signal mode %lu", mode);
+		if (!mode) {
+			KUNIT_EXPECT_TRUE(test, t->resume_queued);
+			KUNIT_EXPECT_TRUE(test, t->resume_checked);
+		}
 		KUNIT_EXPECT_EQ(test, t->kills, expected->kills);
 		KUNIT_EXPECT_EQ(test, t->returns, expected->returns);
 		KUNIT_EXPECT_EQ(test, t->injections, expected->injections);

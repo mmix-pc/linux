@@ -2,6 +2,9 @@
 #ifndef _UAPI_ASM_MMIX_PTRACE_H
 #define _UAPI_ASM_MMIX_PTRACE_H
 
+/* Linux software breakpoint: TRAP 2,0,0 (one big-endian tetra). */
+#define MMIX_BREAKPOINT_INSN 0x00020000
+
 #define MMIX_RSTACK_MAX_WORDS 1024
 
 #ifndef __ASSEMBLY__

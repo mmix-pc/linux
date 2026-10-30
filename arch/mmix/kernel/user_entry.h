@@ -29,6 +29,7 @@ struct mmix_user_entry {
 	bool exit_requested, exit_group;
 	bool rstack_sync_pending, rstack_query_pending;
 	bool syscall_result;
+	bool syscall_entry, syscall_exit_pending, ptrace_redirect;
 	struct mmix_rstack_query rstack_query;
 	void __user *rstack_query_output;
 	int exit_code;
@@ -41,6 +42,7 @@ struct mmix_user_entry {
 	enum mmix_user_event event;
 };
 
+void mmix_ptrace_publish(struct mmix_user_entry *entry);
 int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user_entry_ops *ops,
 		    void *data);
 int mmix_user_syscall(struct mmix_user_entry *entry, void *data);

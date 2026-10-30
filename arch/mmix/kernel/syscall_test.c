@@ -64,7 +64,7 @@ static int observe_syscall(struct mmix_user_entry *entry, void *data)
 		KUNIT_EXPECT_EQ(t->test, (unsigned long)entry->regs.syscall_nr, nr);
 		KUNIT_EXPECT_EQ(t->test, entry->regs.pc, CODE + 4);
 		KUNIT_EXPECT_EQ(t->test, syscall_get_nr(current, &entry->regs),
-				nr < __NR_syscalls ? (int)nr : -1);
+				(long)nr == (int)nr ? (int)nr : -1);
 		for (i = 0; i < 6; i++)
 			KUNIT_EXPECT_EQ(t->test, entry->regs.syscall_args[i],
 					t->before.regs[231 + i]);

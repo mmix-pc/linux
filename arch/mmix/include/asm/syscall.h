@@ -10,7 +10,10 @@
 
 static inline int syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
 {
-	return (unsigned long)regs->syscall_nr < __NR_syscalls ? regs->syscall_nr : -1;
+	long nr = regs->syscall_nr;
+
+	/* Generic syscall-info numbers are signed int; do not alias high bits. */
+	return (int)nr == nr ? nr : -1;
 }
 
 static inline void syscall_set_nr(struct task_struct *task,

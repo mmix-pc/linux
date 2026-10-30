@@ -2,6 +2,7 @@
 #include <linux/errno.h>
 #include <linux/irqflags.h>
 #include <linux/nospec.h>
+#include <linux/ptrace.h>
 #include <linux/syscalls.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
@@ -114,24 +115,43 @@ static const syscall_fn syscall_table[__NR_syscalls] = {
 int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 {
 	struct pt_regs *regs = &entry->regs;
-	unsigned long nr = regs->syscall_nr;
+	unsigned long nr;
 	unsigned long *args = regs->syscall_args;
 	syscall_fn function;
+	bool trace;
 	long result = -ENOSYS;
 
 	if (entry->event != MMIX_USER_SYSCALL)
 		return mmix_user_fault(entry, data);
+	/* Every syscall, including nonreturning services, has one entry boundary. */
+	local_irq_enable();
+	mmix_ptrace_publish(entry);
+	entry->syscall_entry = true;
+	trace = test_syscall_work(SYSCALL_TRACE);
+	if (trace &&
+	    !ptrace_report_syscall_permit_entry(task_pt_regs(current))) {
+		entry->syscall_entry = false;
+		local_irq_disable();
+		return 0;
+	}
+	entry->syscall_entry = false;
+	entry->syscall_exit_pending = true;
+	nr = regs->syscall_nr;
+	if (entry->ptrace_redirect) {
+		local_irq_disable();
+		return 0;
+	}
+	if (nr == -1UL && trace)
+		result = regs->regs[231];
 	if (nr == __NR_exit || nr == __NR_exit_group) {
+		local_irq_disable();
 		entry->exit_requested = true;
 		entry->exit_group = nr == __NR_exit_group;
 		entry->exit_code = (args[0] & 0xff) << 8;
 		return 1;
 	}
 	current->thread.exec_committed = false;
-	/* The user snapshot is owned and the resident entry is released. */
-	local_irq_enable();
 	/* Entry-dependent services complete through the owned return path. */
-	*task_pt_regs(current) = *regs;
 	if (nr == __NR_rt_sigreturn) {
 		int error = mmix_signal_return(entry);
 
@@ -181,7 +201,9 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		entry->rstack_sync_pending = true;
 		return 0;
 	}
-	entry->syscall_result = true;
+	if (entry->ptrace_redirect)
+		return 0;
+	entry->syscall_result = nr != -1UL;
 	regs->regs[231] = result;
 	mmix_user_rstack_state(entry->stack)->regs.regs[231] = result;
 	return 0;

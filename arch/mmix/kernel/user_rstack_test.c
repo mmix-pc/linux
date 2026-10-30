@@ -150,7 +150,7 @@ static void user_rstack_validation(struct kunit *test)
 	s->regs.pc = PAGE_OFFSET;
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), -EINVAL);
 	s->regs.pc = 0x400002;
-	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), -EINVAL);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), 0);
 	s->regs.pc = 0x400000;
 	s->regs.regs[254] = PAGE_OFFSET;
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), -EINVAL);

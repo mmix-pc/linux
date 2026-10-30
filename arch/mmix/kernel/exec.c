@@ -18,7 +18,7 @@ int mmix_elf_check(const struct elf64_hdr *hdr)
 	       hdr->e_ident[EI_DATA] == ELFDATA2MSB &&
 	       (hdr->e_ident[EI_OSABI] == ELFOSABI_NONE ||
 		hdr->e_ident[EI_OSABI] == ELFOSABI_LINUX) &&
-	       !hdr->e_flags && !(hdr->e_entry & 3) &&
+	       !hdr->e_flags &&
 	       (hdr->e_type == ET_DYN || hdr->e_entry >= PAGE_SIZE) &&
 	       hdr->e_entry < TASK_SIZE;
 }

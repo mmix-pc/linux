@@ -17,7 +17,8 @@ struct mmix_rstack_query {
  * Input to mmix_rstack_jump. Addresses are userspace virtual addresses.
  * result is a sign-extended, nonzero signed 32-bit longjmp result.
  * All flags except MMIX_RSTACK_JUMP_SETMASK must be zero. sigmask must
- * be zero unless that flag is set. Success transfers control to landing.
+ * be zero unless that flag is set. Success transfers control to landing,
+ * preserving its low two logical PC bits; environment remains octa-aligned.
  */
 struct mmix_rstack_jump {
 	__u64 chain_id;

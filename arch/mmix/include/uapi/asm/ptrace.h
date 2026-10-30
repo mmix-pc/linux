@@ -13,7 +13,7 @@
 /* Logical user registers; independent of the kernel's trap frame. */
 struct user_regs_struct {
 	__u64 regs[256];
-	__u64 pc;
+	__u64 pc; /* Logical PC, including the low two bits ignored by instruction fetch. */
 	__u64 r_g;
 	__u64 r_l;
 	__u64 r_o;

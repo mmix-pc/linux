@@ -262,7 +262,7 @@ static void exec_images(struct kunit *test)
 			hdr->e_ident[EI_DATA] = ELFDATA2LSB;
 			break;
 		case 4:
-			hdr->e_entry |= 1;
+			hdr->e_flags = 1;
 			break;
 		case 5:
 			hdr->e_entry = MMIX_TASK_SIZE;

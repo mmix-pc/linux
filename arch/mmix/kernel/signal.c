@@ -112,7 +112,7 @@ int mmix_signal_dup(struct task_struct *task)
 
 static bool user_pc(unsigned long pc)
 {
-	return pc && pc < TASK_SIZE && !(pc & 3);
+	return pc && pc < TASK_SIZE;
 }
 
 static int setup_frame(struct mmix_user_entry *entry, struct ksignal *ksig,
@@ -390,7 +390,7 @@ int mmix_signal_jump(struct mmix_user_entry *entry, unsigned long address)
 	    request.result != (long)(int)request.result ||
 	    request.flags & ~MMIX_RSTACK_JUMP_SETMASK ||
 	    (!(request.flags & MMIX_RSTACK_JUMP_SETMASK) && request.sigmask) ||
-	    (request.landing & 3) || (request.environment & 7))
+	    (request.environment & 7))
 		return -EINVAL;
 	if (!user_pc(request.landing) || !request.environment ||
 	    !access_ok((void __user *)request.environment, sizeof(unsigned long)))

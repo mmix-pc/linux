@@ -94,7 +94,8 @@ static int invalid_request(struct jump_test *t, struct mmix_user_entry *entry)
 		expected = -EFAULT;
 		break;
 	case 50:
-		request.landing++;
+		request.landing = 0;
+		expected = -EFAULT;
 		break;
 	case 51:
 		request.landing = TASK_SIZE;

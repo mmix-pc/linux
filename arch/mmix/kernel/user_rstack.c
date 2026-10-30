@@ -172,7 +172,8 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	unsigned long base, size, ga, i;
 	unsigned long *locals, *globals, *specials;
 
-	if (mmix_user_rstack_window(c, &base, &size) || pc >= MMIX_TASK_SIZE || (pc & 3))
+	/* MMIX retains the logical PC's low bits; only instruction fetch aligns. */
+	if (mmix_user_rstack_window(c, &base, &size) || pc >= MMIX_TASK_SIZE)
 		return -EINVAL;
 	locals = stack->shadow + c->r_o - base;
 	globals = locals + c->r_l + 1;
@@ -216,7 +217,7 @@ int mmix_user_rstack_validate(const struct mmix_user_state *s)
 	c.r_s = p->start;
 	if (p->count > MMIX_RSTACK_MAX_WORDS || mmix_user_rstack_window(&c, &base, &size) ||
 	    r->r_o - p->start != p->count * sizeof(unsigned long) || r->pc >= MMIX_TASK_SIZE ||
-	    (r->pc & 3) || r->regs[254] > MMIX_TASK_SIZE || (r->regs[254] & 7) ||
+	    r->regs[254] > MMIX_TASK_SIZE || (r->regs[254] & 7) ||
 	    (r->r_a & ~0x3ffffUL) ||
 	    memchr_inv(r->regs + r->r_l, 0, (230 - r->r_l) * sizeof(unsigned long)) ||
 	    memchr_inv(p->data + p->count, 0,

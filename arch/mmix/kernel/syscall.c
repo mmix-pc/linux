@@ -155,6 +155,10 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 	if (nr == __NR_rt_sigreturn) {
 		int error = mmix_signal_return(entry);
 
+		/* the syscall is complete even if its restored op is not. */
+		if (!error && (entry->step_state == MMIX_STEP_IN_FLIGHT ||
+			       entry->step_state == MMIX_STEP_SYSCALL))
+			mmix_step_complete(entry);
 		local_irq_disable();
 		return error;
 	}

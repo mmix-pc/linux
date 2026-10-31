@@ -8,6 +8,14 @@
 
 struct mmix_user_entry;
 
+enum mmix_step_state {
+	MMIX_STEP_DISARMED,
+	MMIX_STEP_IN_FLIGHT,
+	MMIX_STEP_REQUESTED,
+	MMIX_STEP_REPLAY,
+	MMIX_STEP_SYSCALL,
+};
+
 enum mmix_user_event {
 	MMIX_USER_SYSCALL,
 	MMIX_USER_FAULT,
@@ -24,6 +32,11 @@ struct mmix_user_entry {
 	unsigned long kernel_c;
 	unsigned long shadow_base, shadow_end, shadow_physical;
 	unsigned long user_top;
+	unsigned long step_state;
+	struct task_struct *step_tracer;
+	struct task_struct *step_notification_owner;
+	bool step_completed;
+	int step_detach_signal;
 	long error;
 	int fatal_signal;
 	bool exit_requested, exit_group;
@@ -42,6 +55,10 @@ struct mmix_user_entry {
 	enum mmix_user_event event;
 };
 
+int mmix_step_fetch(struct mmix_user_entry *entry, u32 *insn);
+int mmix_step_resume(struct mmix_user_entry *entry, u32 insn);
+void mmix_step_complete(struct mmix_user_entry *entry);
+void mmix_step_cancel(struct mmix_user_entry *entry);
 void mmix_ptrace_publish(struct mmix_user_entry *entry);
 int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user_entry_ops *ops,
 		    void *data);

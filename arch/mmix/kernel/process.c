@@ -103,6 +103,16 @@ void arch_release_task_struct(struct task_struct *task)
 
 void exit_thread(struct task_struct *task)
 {
+	struct mmix_user_entry *entry = task->thread.user_entry;
+
+	/* Fatal signal selection can bypass both notification and entry return. */
+	if (entry) {
+		mmix_step_cancel(entry);
+		if (entry->step_notification_owner) {
+			put_task_struct(entry->step_notification_owner);
+			entry->step_notification_owner = NULL;
+		}
+	}
 	/* Published tasks detach at mm_release; failed forks still hold their mm. */
 	mmix_rstack_detach(task, task->mm);
 	mmix_vfork_detach(task, task->mm);
@@ -326,6 +336,10 @@ void machine_restart(char *command)
 
 void flush_thread(void)
 {
+	/* old-image intent cannot survive the exec commit point. */
+	if (current->thread.user_entry)
+		mmix_step_cancel(current->thread.user_entry);
+
 	mmix_signal_free(current);
 	current->thread.rstack_chain = 0;
 	/* Crossing the exec commit point discards the previous user snapshot. */

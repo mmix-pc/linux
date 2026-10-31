@@ -2744,7 +2744,8 @@ static void do_freezer_trap(void)
 		task_work_run();
 }
 
-static int ptrace_signal(int signr, kernel_siginfo_t *info, enum pid_type type)
+static int ptrace_signal(int signr, kernel_siginfo_t *info, enum pid_type type,
+			 struct task_struct *owner, int *detach_signal)
 {
 	/*
 	 * We do not check sig_kernel_stop(signr) but set this marker
@@ -2757,6 +2758,13 @@ static int ptrace_signal(int signr, kernel_siginfo_t *info, enum pid_type type)
 	 */
 	current->jobctl |= JOBCTL_STOP_DEQUEUED;
 	signr = ptrace_stop(signr, CLD_TRAPPED, 0, info);
+
+	/* A synthetic completion must not survive its ptrace relationship. */
+	if (owner && (!current->ptrace || READ_ONCE(current->parent) != owner)) {
+		if (!detach_signal || READ_ONCE(*detach_signal) < 0)
+			return 0;
+		signr = READ_ONCE(*detach_signal);
+	}
 
 	/* We're back.  Did the debugger cancel the sig?  */
 	if (signr == 0)
@@ -2774,9 +2782,9 @@ static int ptrace_signal(int signr, kernel_siginfo_t *info, enum pid_type type)
 		info->si_errno = 0;
 		info->si_code = SI_USER;
 		rcu_read_lock();
-		info->si_pid = task_pid_vnr(current->parent);
+		info->si_pid = task_pid_vnr(owner ? owner : current->parent);
 		info->si_uid = from_kuid_munged(current_user_ns(),
-						task_uid(current->parent));
+						task_uid(owner ? owner : current->parent));
 		rcu_read_unlock();
 	}
 
@@ -2812,7 +2820,8 @@ static void hide_si_addr_tag_bits(struct ksignal *ksig)
 	}
 }
 
-bool get_signal(struct ksignal *ksig)
+static bool get_signal_owned(struct ksignal *ksig, struct task_struct *owner,
+			     void __user *address, int *detach_signal)
 {
 	struct sighand_struct *sighand = current->sighand;
 	struct signal_struct *signal = current->signal;
@@ -2822,7 +2831,7 @@ bool get_signal(struct ksignal *ksig)
 	if (unlikely(task_work_pending(current)))
 		task_work_run();
 
-	if (!task_sigpending(current))
+	if (!owner && !task_sigpending(current))
 		return false;
 
 	if (unlikely(uprobe_deny_signal()))
@@ -2926,6 +2935,22 @@ relock:
 		 * frame points to the faulting instruction.
 		 */
 		type = PIDTYPE_PID;
+		if (owner) {
+			struct task_struct *completed_owner = owner;
+
+			owner = NULL;
+			if (!current->ptrace || READ_ONCE(current->parent) != completed_owner)
+				continue;
+			clear_siginfo(&ksig->info);
+			ksig->info.si_signo = SIGTRAP;
+			ksig->info.si_code = TRAP_TRACE;
+			ksig->info.si_addr = address;
+			signr = ptrace_signal(SIGTRAP, &ksig->info, type,
+					      completed_owner, detach_signal);
+			if (!signr)
+				continue;
+			goto selected_signal;
+		}
 		signr = dequeue_synchronous_signal(&ksig->info);
 		if (!signr)
 			signr = dequeue_signal(&current->blocked, &ksig->info, &type);
@@ -2935,11 +2960,12 @@ relock:
 
 		if (unlikely(current->ptrace) && (signr != SIGKILL) &&
 		    !(sighand->action[signr -1].sa.sa_flags & SA_IMMUTABLE)) {
-			signr = ptrace_signal(signr, &ksig->info, type);
+			signr = ptrace_signal(signr, &ksig->info, type, NULL, NULL);
 			if (!signr)
 				continue;
 		}
 
+selected_signal:
 		ka = &sighand->action[signr-1];
 
 		/* Trace actually delivered signals. */
@@ -3059,6 +3085,18 @@ relock:
 		hide_si_addr_tag_bits(ksig);
 out:
 	return signr > 0;
+}
+
+bool get_signal(struct ksignal *ksig)
+{
+	return get_signal_owned(ksig, NULL, NULL, NULL);
+}
+
+/* Caller pins the step owner; ordinary signal selection remains unchanged. */
+bool get_signal_single_step(struct ksignal *ksig, struct task_struct *owner,
+			    void __user *address, int *detach_signal)
+{
+	return get_signal_owned(ksig, owner, address, detach_signal);
 }
 
 /**

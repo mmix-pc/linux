@@ -55,6 +55,7 @@ int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 		return -EOPNOTSUPP;
 	entry->fatal_signal = mmix_handle_page_fault(&entry->regs, &info);
 	if (entry->fatal_signal && current->thread.rstack_chain) {
+		entry->step_state = MMIX_STEP_DISARMED;
 		local_irq_enable();
 		if (entry->fatal_signal == SIGSEGV || entry->fatal_signal == SIGBUS)
 			force_sig_fault(entry->fatal_signal, info.code,
@@ -122,6 +123,8 @@ static int prepare_return(struct mmix_user_entry *entry)
 	/* Backing writes may have replaced a COW page since the original fault. */
 	if (entry->ops->write == mmix_user_write && mmix_refresh_translation(&entry->regs))
 		return -EFAULT;
+	if (entry->step_state && entry->regs.r_xx >> 32 == 0x03000000UL)
+		entry->regs.r_zz &= ~1UL;
 	memcpy(entry->regs.regs, mmix_user_rstack_state(entry->stack)->regs.regs,
 	       sizeof(entry->regs.regs));
 	entry->rstack_sync_pending = false;
@@ -150,7 +153,24 @@ static int return_to_user(struct mmix_user_entry *entry)
 			ptrace_report_syscall_exit(task_pt_regs(current), 0);
 		local_irq_disable();
 	}
+	/* A request made at syscall entry/event finishes the current syscall,
+	 * without inserting its successor. Interrupted restart results instead
+	 * return through signal selection before a fresh operation is armed.
+	 */
+	if (entry->step_state == MMIX_STEP_SYSCALL) {
+		long result = entry->regs.regs[231];
+
+		if (entry->syscall_result &&
+		    (result == -ERESTARTSYS || result == -ERESTARTNOINTR ||
+		     result == -ERESTARTNOHAND || result == -ERESTART_RESTARTBLOCK))
+			entry->step_state = MMIX_STEP_REQUESTED;
+		else
+			mmix_step_complete(entry);
+	}
 	for (;;) {
+		u32 insn = 0;
+		unsigned long pc;
+
 		local_irq_enable();
 		if (need_resched())
 			schedule();
@@ -162,12 +182,48 @@ static int return_to_user(struct mmix_user_entry *entry)
 		local_irq_disable();
 		if (error < 0)
 			return error;
+		/* Tracer exit unlinks a task without calling ptrace_disable(). */
+		if (!READ_ONCE(current->ptrace) ||
+		    (entry->step_tracer && READ_ONCE(current->parent) != entry->step_tracer))
+			mmix_step_cancel(entry);
 		error = prepare_return(entry);
 		if (error)
 			return error;
+		/* Signal delivery can replace a requested partial return with fresh code. */
+		if (entry->step_state == MMIX_STEP_REPLAY && entry->regs.r_xx >> 63)
+			entry->step_state = MMIX_STEP_REQUESTED;
+		if (entry->step_state == MMIX_STEP_REQUESTED) {
+			pc = entry->regs.pc;
+			if (!(entry->regs.r_xx >> 63))
+				return -EOPNOTSUPP;
+			error = mmix_step_fetch(entry, &insn);
+			if (error < 0)
+				return error;
+			if (error)
+				continue;
+		}
 		if (!(read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_SIGPENDING |
-					     _TIF_NOTIFY_SIGNAL | _TIF_NOTIFY_RESUME)))
+					     _TIF_NOTIFY_SIGNAL | _TIF_NOTIFY_RESUME))) {
+			if (entry->step_state == MMIX_STEP_REQUESTED) {
+				if (insn >> 24 == 0xf9) {
+					error = mmix_step_resume(entry, insn);
+					if (error < 0)
+						return error;
+					if (error)
+						continue;
+					break;
+				}
+				entry->regs.r_ww = pc + 4;
+				entry->regs.r_xx = insn;
+				entry->regs.r_yy = 0;
+				entry->regs.r_zz = 0;
+				entry->step_state = MMIX_STEP_IN_FLIGHT;
+			}
+			/* Resume the saved partial operation without reinsertion. */
+			if (entry->step_state == MMIX_STEP_REPLAY)
+				entry->step_state = MMIX_STEP_IN_FLIGHT;
 			break;
+		}
 	}
 	/* prepare_return refreshed translations before the final IRQ-off recheck. */
 	return 0;
@@ -234,6 +290,8 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	local_irq_restore(flags);
 out:
 	current->thread.user_entry = NULL;
+	if (entry->step_tracer)
+		put_task_struct(entry->step_tracer);
 	kfree(entry);
 	if (exit_requested) {
 		local_irq_enable();
@@ -279,6 +337,23 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		  !(pending & (0xffUL << 32));
 	breakpoint = (regs->r_xx >> 63) && (u32)regs->r_xx == MMIX_BREAKPOINT_INSN &&
 		     !(pending & (0xffUL << 32));
+	if (entry->step_state && (u32)regs->r_xx == 0xfd000000 &&
+	    (regs->r_xx >> 32 == 0x03000000UL || (pending & BIT_ULL(37)))) {
+		if (regs->r_xx >> 32 != 0x03000000UL)
+			regs->pc -= 4;
+		state->regs.pc = regs->pc;
+		regs->r_ww = regs->pc;
+		regs->r_xx = 1UL << 63;
+		regs->r_yy = 0;
+		regs->r_zz = 0;
+		entry->step_state = MMIX_STEP_DISARMED;
+		mmix_ack_requests(pending & (0xffUL << 32));
+		local_irq_enable();
+		if (READ_ONCE(current->ptrace))
+			mmix_step_complete(entry);
+		local_irq_disable();
+		goto return_work;
+	}
 	/* Pending IRQs must not consume synchronous forced traps or translations. */
 	if (IS_ENABLED(CONFIG_MMIX_SIGNAL_TEST) && (regs->r_q & BIT_ULL(6)) &&
 	    (regs->r_xx >> 63) && !(pending & (0xffUL << 32)) && !syscall && !breakpoint) {
@@ -334,6 +409,7 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 			goto failed;
 		mmix_ack_requests(pending & (0xffUL << 32));
 	}
+return_work:
 	local_irq_disable();
 	error = return_to_user(entry);
 	if (!error)

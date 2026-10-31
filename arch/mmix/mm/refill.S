@@ -57,6 +57,23 @@ mmix_refill:
 	LDOU r242,r255,MMU_ROOT
 	JMP .Lroot
 .Luser:
+	/* do not supply a user fetch translation while armed. */
+	GET r241,rWW
+	BN r241,.Luser_tables
+	MMIX_CPU_PTR r242,MMIX_CPU_VECTOR_USER
+	LDOU r242,r242,0
+	BZ r242,.Luser_tables
+	SETL r243,USER_STEP_STATE
+	LDOU r242,r242,r243
+	BZ r242,.Luser_tables
+	GET r242,rXX
+	SLU r242,r242,32
+	SRU r242,r242,32
+	SETML r243,0xfd00
+	CMPU r242,r242,r243
+	BZ r242,.Lordinary
+.Luser_tables:
+
 	LDOU r242,r255,MMU_USER_ROOT
 	BZ r242,.Lmissing
 .Lroot:
@@ -133,6 +150,17 @@ mmix_refill:
 	OR r244,r244,7
 	AND r248,r248,r244
 .Ltranslated:
+	/* Data translations must not admit fetch, even with a unified TC. */
+	GET r240,rWW
+	BN r240,.Lstep_mask_done
+	MMIX_CPU_PTR r240,MMIX_CPU_VECTOR_USER
+	LDOU r240,r240,0
+	BZ r240,.Lstep_mask_done
+	SETL r241,USER_STEP_STATE
+	LDOU r240,r240,r241
+	BZ r240,.Lstep_mask_done
+	ANDN r248,r248,1
+.Lstep_mask_done:
 	PUT rZZ,r248
 	SETL r254,0
 	STOU r254,r255,MMU_BUSY

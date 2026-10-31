@@ -258,7 +258,22 @@ int mmix_signal_pending(struct mmix_user_entry *entry, bool materialized)
 	int error;
 
 	mmix_ptrace_publish(entry);
-	deliver = get_signal(&ksig);
+	if (entry->step_completed) {
+		struct task_struct *owner = entry->step_tracer;
+
+		entry->step_completed = false;
+		/* Transfer this request's reference; a new request gets its own. */
+		entry->step_tracer = NULL;
+		/* Fatal disposition never returns: exit_thread releases this owner. */
+		entry->step_notification_owner = owner;
+		deliver = get_signal_single_step(&ksig, owner, (void __user *)entry->regs.pc,
+						 &entry->step_detach_signal);
+		entry->step_notification_owner = NULL;
+		if (owner)
+			put_task_struct(owner);
+	} else {
+		deliver = get_signal(&ksig);
+	}
 	restarted = syscall_restart(entry, deliver ? &ksig : NULL);
 	if (!deliver) {
 		restore_saved_sigmask();

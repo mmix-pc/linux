@@ -19,6 +19,10 @@ struct pt_regs {
 };
 
 struct task_struct;
+
+#define arch_has_single_step() 1
+void user_enable_single_step(struct task_struct *task);
+void user_disable_single_step(struct task_struct *task);
 struct pt_regs *task_pt_regs(struct task_struct *task);
 
 #define user_mode(regs) ((long)(regs)->pc >= 0)

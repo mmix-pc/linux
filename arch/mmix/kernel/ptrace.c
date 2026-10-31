@@ -18,6 +18,7 @@ struct pt_regs *task_pt_regs(struct task_struct *task)
 void ptrace_disable(struct task_struct *task)
 {
 	clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+	user_disable_single_step(task);
 }
 
 /* Publish the logical bank without exposing or replacing privileged state. */
@@ -190,6 +191,17 @@ long arch_ptrace(struct task_struct *child, long request, unsigned long addr,
 		 unsigned long data)
 {
 	long error;
+
+	if (request == PTRACE_SINGLESTEP) {
+		struct mmix_user_entry *entry = child->thread.user_entry;
+
+		if (!entry || (entry->stack != child->thread.user_state &&
+			       !child->thread.exec_pending))
+			return -EIO;
+	}
+	/* Explicit detach injection is distinct from automatic tracer unlink. */
+	if (request == PTRACE_DETACH && valid_signal(data) && child->thread.user_entry)
+		WRITE_ONCE(child->thread.user_entry->step_detach_signal, (int)data);
 
 	/* A sigreturn exit stop can expose an unfinished user instruction. */
 	if (request == PTRACE_SET_SYSCALL_INFO && !(task_pt_regs(child)->r_xx >> 63))

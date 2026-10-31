@@ -123,6 +123,7 @@ int main(void)
 	DEFINE(USER_SHADOW_END, offsetof(struct mmix_user_entry, shadow_end));
 	DEFINE(USER_SHADOW_PHYSICAL, offsetof(struct mmix_user_entry, shadow_physical));
 	DEFINE(USER_USER_TOP, offsetof(struct mmix_user_entry, user_top));
+	DEFINE(USER_STEP_STATE, offsetof(struct mmix_user_entry, step_state));
 	DEFINE(USER_ERROR, offsetof(struct mmix_user_entry, error));
 	DEFINE(USER_CAPTURE, offsetof(struct mmix_user_entry, capture));
 	DEFINE(USER_REGS, offsetof(struct mmix_user_entry, regs));

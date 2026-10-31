@@ -291,6 +291,8 @@ extern void __set_current_blocked(const sigset_t *);
 extern int show_unhandled_signals;
 
 extern bool get_signal(struct ksignal *ksig);
+bool get_signal_single_step(struct ksignal *ksig, struct task_struct *owner,
+			    void __user *address, int *detach_signal);
 extern void signal_setup_done(int failed, struct ksignal *ksig, int stepping);
 extern void exit_signals(struct task_struct *tsk);
 extern void kernel_sigaction(int, __sighandler_t);

@@ -110,16 +110,6 @@ struct mmix_user_state *mmix_user_rstack_state(struct mmix_user_rstack_state *st
 	return &stack->state;
 }
 
-const struct mmix_user_state *mmix_user_rstack_snapshot(struct task_struct *task)
-{
-	const struct mmix_user_rstack_state *stack = task->thread.user_state;
-
-	/* Core and ptrace callers hold the task stopped for the entire read. */
-	if (!stack || mmix_user_rstack_validate(&stack->state))
-		return ERR_PTR(-EIO);
-	return &stack->state;
-}
-
 void *mmix_user_rstack_shadow(struct mmix_user_rstack_state *stack)
 {
 	return stack->shadow;
@@ -206,7 +196,7 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	return 0;
 }
 
-int mmix_user_rstack_validate(const struct mmix_user_state *s)
+static int validate_snapshot(const struct mmix_user_state *s)
 {
 	const struct user_regs_struct *r = &s->regs;
 	const struct mmix_user_rstack *p = &s->pending;
@@ -216,7 +206,7 @@ int mmix_user_rstack_validate(const struct mmix_user_state *s)
 	/* Logical pending values can span pages; they are no longer a raw rC prefix. */
 	c.r_s = p->start;
 	if (p->count > MMIX_RSTACK_MAX_WORDS || mmix_user_rstack_window(&c, &base, &size) ||
-	    r->r_o - p->start != p->count * sizeof(unsigned long) || r->pc >= MMIX_TASK_SIZE ||
+	    r->r_o - p->start != p->count * sizeof(unsigned long) ||
 	    r->regs[254] > MMIX_TASK_SIZE || (r->regs[254] & 7) ||
 	    (r->r_a & ~0x3ffffUL) ||
 	    memchr_inv(r->regs + r->r_l, 0, (230 - r->r_l) * sizeof(unsigned long)) ||
@@ -224,6 +214,24 @@ int mmix_user_rstack_validate(const struct mmix_user_state *s)
 		       (MMIX_RSTACK_MAX_WORDS - p->count) * sizeof(unsigned long)))
 		return -EINVAL;
 	return 0;
+}
+
+int mmix_user_rstack_validate(const struct mmix_user_state *s)
+{
+	if (s->regs.pc >= MMIX_TASK_SIZE)
+		return -EINVAL;
+	return validate_snapshot(s);
+}
+
+/* A protection-fault location is observable, but is not a valid resume PC. */
+const struct mmix_user_state *mmix_user_rstack_snapshot(struct task_struct *task)
+{
+	const struct mmix_user_rstack_state *stack = task->thread.user_state;
+
+	/* Core and ptrace callers hold the task stopped for the entire read. */
+	if (!stack || validate_snapshot(&stack->state))
+		return ERR_PTR(-EIO);
+	return &stack->state;
 }
 
 int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,

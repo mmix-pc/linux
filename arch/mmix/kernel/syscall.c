@@ -10,6 +10,7 @@
 #include <linux/uaccess.h>
 #include <asm/page.h>
 #include <asm/rstack.h>
+#include <asm/spawn.h>
 #include <uapi/asm/rstack.h>
 #include "user_entry.h"
 #include "signal.h"
@@ -172,6 +173,8 @@ int mmix_user_syscall(struct mmix_user_entry *entry, void *data)
 		result = rstack_sync(entry);
 	} else if (nr == __NR_mmix_rstack_query) {
 		result = rstack_query(entry, args[0]);
+	} else if (nr == __NR_mmix_spawn) {
+		result = mmix_spawn(args[0], args[1], args[2], args[3], args[4], args[5]);
 	} else if (nr < ARRAY_SIZE(syscall_table)) {
 		function = syscall_table[array_index_nospec(nr, ARRAY_SIZE(syscall_table))];
 		result = function(args[0], args[1], args[2], args[3], args[4], args[5]);

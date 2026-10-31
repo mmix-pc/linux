@@ -11,6 +11,7 @@
 #include <asm/rstack.h>
 #include <asm/irqflags.h>
 #include <asm/smp.h>
+#include <asm/spawn.h>
 #include "process.h"
 #include "user_entry.h"
 #include "signal.h"
@@ -94,6 +95,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 void arch_release_task_struct(struct task_struct *task)
 {
 	/* Final task release, including failed forks; never the running task. */
+	mmix_spawn_drop(task);
 	mmix_signal_free(task);
 	kfree(task->thread.user_entry);
 	mmix_user_rstack_free(&task->thread.user_state);
@@ -116,6 +118,7 @@ void exit_thread(struct task_struct *task)
 	/* Published tasks detach at mm_release; failed forks still hold their mm. */
 	mmix_rstack_detach(task, task->mm);
 	mmix_vfork_detach(task, task->mm);
+	mmix_spawn_drop(task);
 }
 
 void release_thread(struct task_struct *task)
@@ -169,6 +172,8 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 
 	/* Native shared-mm children need either a fresh root or a vfork checkpoint. */
 	if (!args->fn) {
+		if (current->thread.spawn_event)
+			return -EOPNOTSUPP;
 		if (!current->thread.user_state || args->stack_size)
 			return -EOPNOTSUPP;
 		if (user_thread) {
@@ -283,6 +288,8 @@ int copy_thread(struct task_struct *task, const struct kernel_clone_args *args)
 				goto fail;
 		}
 	}
+	if (!args->fn)
+		mmix_spawn_attach(task);
 	task->thread.rstack = stack;
 	return 0;
 fail:

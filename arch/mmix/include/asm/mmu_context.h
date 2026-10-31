@@ -3,6 +3,7 @@
 #define _ASM_MMIX_MMU_CONTEXT_H
 
 #include <asm/rstack.h>
+#include <asm/spawn.h>
 
 struct task_struct;
 struct mm_struct;
@@ -37,6 +38,7 @@ static inline void deactivate_mm(struct task_struct *task, struct mm_struct *mm)
 {
 	mmix_rstack_detach(task, mm);
 	mmix_vfork_detach(task, mm);
+	mmix_spawn_release(task);
 }
 
 #define deactivate_mm deactivate_mm

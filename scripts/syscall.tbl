@@ -301,6 +301,7 @@
 244	mmix	mmix_rstack_sync			sys_ni_syscall
 245	mmix	mmix_rstack_query		sys_ni_syscall
 246	mmix	mmix_rstack_jump			sys_ni_syscall
+247	mmix	mmix_spawn			sys_ni_syscall
 
 244	nios2	cacheflush			sys_cacheflush
 

@@ -7,6 +7,7 @@
 #include <linux/sched/signal.h>
 #include <linux/seq_file.h>
 #include <asm/rstack.h>
+#include <asm/spawn.h>
 #include "signal.h"
 #include "process.h"
 #include "user_rstack.h"
@@ -73,6 +74,15 @@ static int vfork_stats_show(struct seq_file *seq, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(vfork_stats);
 
+static int spawn_stats_show(struct seq_file *seq, void *unused)
+{
+	seq_printf(seq, "events_live %ld\n", mmix_spawn_events_live());
+	seq_printf(seq, "producers_live %ld\n", mmix_spawn_producers_live());
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(spawn_stats);
+
+static int spawn_failure;
 static int domain_failure;
 static int user_state_failure;
 static int entry_failure;
@@ -89,7 +99,9 @@ static ssize_t fail_after_write(struct file *file, const char __user *buffer,
 		return error;
 	if (step < -1 || step > 32)
 		return -EINVAL;
-	if (file->private_data == &domain_failure)
+	if (file->private_data == &spawn_failure)
+		mmix_spawn_fail_after(step);
+	else if (file->private_data == &domain_failure)
 		mmix_rstack_domain_fail_after(step);
 	else if (file->private_data == &user_state_failure)
 		mmix_user_rstack_fail_after(step);
@@ -135,6 +147,14 @@ static int __init user_test_init(void)
 		debugfs_remove(dir);
 		return PTR_ERR(file);
 	}
+	file = debugfs_create_file("spawn_stats", 0400, dir, NULL,
+				   &spawn_stats_fops);
+	if (IS_ERR(file))
+		return PTR_ERR(file);
+	file = debugfs_create_file("spawn_fail_after", 0200, dir,
+				   &spawn_failure, &fail_after_fops);
+	if (IS_ERR(file))
+		return PTR_ERR(file);
 	file = debugfs_create_file("rstack_fail_after", 0200, dir, NULL,
 				   &fail_after_fops);
 	if (IS_ERR(file)) {

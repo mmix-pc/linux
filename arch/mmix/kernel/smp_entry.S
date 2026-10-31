@@ -87,6 +87,10 @@ mmix_secondary_fault:
 .globl mmix_enter_secondary
 mmix_enter_secondary:
 	PUT rK,0
+	/* UNSAVE refill must preserve masking until the normal vector is ready. */
+	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_IRQ
+	SETL r250,0
+	STOU r250,r255,0
 	OR r255,r231,0
 	UNSAVE r255
 	GET r255,rT

@@ -10,7 +10,7 @@ struct mmix_user_entry;
 struct task_struct;
 
 struct mmix_boot_ipi_regs {
-	unsigned long r253, sp, r_ww, r_xx, r_yy, r_zz, r_bb, save;
+	unsigned long r253, sp, r_ww, r_xx, r_yy, r_zz, r_bb, save, irq_mask;
 };
 
 struct mmix_cpu_state {

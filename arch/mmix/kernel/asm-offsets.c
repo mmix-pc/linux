@@ -47,6 +47,7 @@ int main(void)
 	BOOT_IPI_OFFSET(ZZ, r_zz);
 	BOOT_IPI_OFFSET(BB, r_bb);
 	BOOT_IPI_OFFSET(SAVE, save);
+	BOOT_IPI_OFFSET(IRQ, irq_mask);
 	DEFINE(TASK_THREAD, offsetof(struct task_struct, thread));
 	DEFINE(PT_PC, offsetof(struct pt_regs, pc));
 	DEFINE(PT_MASK, offsetof(struct pt_regs, mask));

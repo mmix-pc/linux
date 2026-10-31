@@ -11,6 +11,12 @@ mmix_boot_ipi_entry:
 	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_STATE
 	STOU r253,r255,BOOT_IPI_R253
 	STOU r254,r255,BOOT_IPI_SP
+	/* Refill must not re-enable IRQs inside this non-nestable entry. */
+	MMIX_CPU_PTR r254,MMIX_CPU_VECTOR_IRQ
+	LDOU r253,r254,0
+	STOU r253,r255,BOOT_IPI_IRQ
+	SETL r253,0
+	STOU r253,r254,0
 	GET r253,rWW
 	STOU r253,r255,BOOT_IPI_WW
 	GET r253,rXX
@@ -49,6 +55,10 @@ mmix_boot_ipi_entry:
 	PUT rZZ,r253
 	LDOU r253,r255,BOOT_IPI_BB
 	PUT rBB,r253
+	/* Restore the interrupted policy only after all faultable stack work. */
+	LDOU r253,r255,BOOT_IPI_IRQ
+	MMIX_CPU_PTR r254,MMIX_CPU_VECTOR_IRQ
+	STOU r253,r254,0
 	LDOU r254,r255,BOOT_IPI_SP
 	LDOU r253,r255,BOOT_IPI_R253
 	MMIX_CPU_PTR r255,MMIX_CPU_VECTOR_IRQ

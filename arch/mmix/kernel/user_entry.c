@@ -57,7 +57,8 @@ int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 	if (entry->fatal_signal && current->thread.rstack_chain) {
 		entry->step_state = MMIX_STEP_DISARMED;
 		local_irq_enable();
-		if (entry->fatal_signal == SIGSEGV || entry->fatal_signal == SIGBUS)
+		if (entry->fatal_signal == SIGSEGV || entry->fatal_signal == SIGBUS ||
+		    (entry->fatal_signal == SIGILL && info.code == ILL_PRVREG))
 			force_sig_fault(entry->fatal_signal, info.code,
 					(void __user *)info.address);
 		else

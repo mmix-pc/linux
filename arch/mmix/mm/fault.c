@@ -86,8 +86,15 @@ int mmix_handle_page_fault(struct pt_regs *regs, struct mmix_fault_info *info)
 	} else if (requests & (1UL << 38)) {
 		access = VM_WRITE;
 	} else if (!(requests & (1UL << 39))) {
-		if (regs->r_xx >> 32 != 0x03000000UL)
+		if (regs->r_xx >> 32 != 0x03000000UL) {
+			info->code = SI_KERNEL;
+			/* MMIXware sections 37 and 43: privileged PUT/PUTI. */
+			if ((requests & (1UL << 35)) && (opcode & ~1U) == 0xf6) {
+				info->code = ILL_PRVREG;
+				info->address = regs->pc;
+			}
 			return SIGILL;
+		}
 		if ((u32)regs->r_xx == 0xfd000000)
 			access = VM_EXEC;
 		else if (opcode >= 0xa0 && opcode <= 0xbf)

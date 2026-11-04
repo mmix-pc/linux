@@ -87,12 +87,17 @@ int mmix_handle_page_fault(struct pt_regs *regs, struct mmix_fault_info *info)
 		access = VM_WRITE;
 	} else if (!(requests & (1UL << 39))) {
 		if (regs->r_xx >> 32 != 0x03000000UL) {
+			unsigned long cause = regs->r_xx;
+
 			info->code = SI_KERNEL;
-			/* MMIXware sections 37 and 43: privileged PUT/PUTI. */
-			if ((requests & (1UL << 35)) && (opcode & ~1U) == 0xf6) {
-				info->code = ILL_PRVREG;
-				info->address = regs->pc;
-			}
+			info->address = regs->pc;
+			/* MMIXware 37: rXX identifies this instruction's causes. */
+			if (cause & (1UL << 35))
+				info->code = (opcode & ~1U) == 0xf6 ? ILL_PRVREG : ILL_PRVOPC;
+			else if (cause & (1UL << 34))
+				info->code = ILL_ILLOPN;
+			else if (cause & (1UL << 32))
+				info->code = ILL_ILLADR;
 			return SIGILL;
 		}
 		if ((u32)regs->r_xx == 0xfd000000)

@@ -56,6 +56,7 @@ struct mmix_user_entry {
 };
 
 int mmix_step_fetch(struct mmix_user_entry *entry, u32 *insn);
+int mmix_resume_sigill(u32 insn, const struct user_regs_struct *user);
 int mmix_step_resume(struct mmix_user_entry *entry, u32 insn);
 void mmix_step_complete(struct mmix_user_entry *entry);
 void mmix_step_cancel(struct mmix_user_entry *entry);

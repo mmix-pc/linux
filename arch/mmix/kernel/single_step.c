@@ -7,26 +7,47 @@
 #include <linux/uaccess.h>
 #include "user_entry.h"
 
-/* Translate a validated public RESUME into a private continuation. */
-int mmix_step_resume(struct mmix_user_entry *entry, u32 insn)
+/* Decode a rejected public RESUME without changing its saved operands. */
+int mmix_resume_sigill(u32 insn, const struct user_regs_struct *user)
 {
-	const struct user_regs_struct *user = &mmix_user_rstack_state(entry->stack)->regs;
 	unsigned long exec = user->r_x, where = user->r_w;
 	unsigned int rop = exec >> 56, op = (u32)exec >> 24;
 	unsigned int x = (exec >> 16) & 255;
 	bool eligible = (op <= 0x3f) ||
 			(op >= 0x60 && op <= 0x7f) || (op >= 0xc0 && op <= 0xef);
-	bool invalid = insn != 0xf9000000 || (long)where < 0;
+	int code = 0;
 
-	/* Never expose privileged RESUME 1 or translation ropcode 3. */
-	if (!(exec >> 63))
-		invalid |= rop > 2 || (rop == 0 && op == 0xf9) ||
-			   (rop == 1 && !eligible) ||
-			   ((rop == 1 || rop == 2) && x >= user->r_l && x < user->r_g);
-	if (invalid) {
+	/* MMIXware 38: distinguish the rejected operation from its operands. */
+	if (insn == 0xf9000001) {
+		code = ILL_PRVOPC;
+	} else if (insn != 0xf9000000) {
+		code = ILL_ILLOPN;
+	} else if ((long)where < 0) {
+		code = ILL_ILLADR;
+	} else if (!(exec >> 63)) {
+		/* Translation ropcode 3 is not an operand of public RESUME 0. */
+		if (rop > 2)
+			code = ILL_ILLOPN;
+		else if ((rop == 0 && op == 0xf9) || (rop == 1 && !eligible))
+			code = ILL_ILLOPC;
+		else if ((rop == 1 || rop == 2) && x >= user->r_l && x < user->r_g)
+			code = ILL_ILLOPN;
+	}
+	return code;
+}
+
+/* Translate a validated public RESUME into a private continuation. */
+int mmix_step_resume(struct mmix_user_entry *entry, u32 insn)
+{
+	const struct user_regs_struct *user = &mmix_user_rstack_state(entry->stack)->regs;
+	unsigned long exec = user->r_x, where = user->r_w;
+	unsigned int rop = exec >> 56;
+	int code = mmix_resume_sigill(insn, user);
+
+	if (code) {
 		entry->step_state = MMIX_STEP_DISARMED;
 		local_irq_enable();
-		force_sig(SIGILL);
+		force_sig_fault(SIGILL, code, (void __user *)entry->regs.pc);
 		local_irq_disable();
 		return 1;
 	}

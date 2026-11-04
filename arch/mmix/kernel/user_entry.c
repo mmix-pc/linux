@@ -54,11 +54,19 @@ int mmix_user_fault(struct mmix_user_entry *entry, void *data)
 	if (entry->event != MMIX_USER_FAULT)
 		return -EOPNOTSUPP;
 	entry->fatal_signal = mmix_handle_page_fault(&entry->regs, &info);
+	if (entry->fatal_signal == SIGILL && (entry->regs.r_xx & (1UL << 34)) &&
+	    (u32)entry->regs.r_xx >> 24 == 0xf9) {
+		const struct user_regs_struct *user = &mmix_user_rstack_state(entry->stack)->regs;
+		int code = mmix_resume_sigill((u32)entry->regs.r_xx, user);
+
+		if (code)
+			info.code = code;
+	}
 	if (entry->fatal_signal && current->thread.rstack_chain) {
 		entry->step_state = MMIX_STEP_DISARMED;
 		local_irq_enable();
 		if (entry->fatal_signal == SIGSEGV || entry->fatal_signal == SIGBUS ||
-		    (entry->fatal_signal == SIGILL && info.code == ILL_PRVREG))
+		    (entry->fatal_signal == SIGILL && info.code != SI_KERNEL))
 			force_sig_fault(entry->fatal_signal, info.code,
 					(void __user *)info.address);
 		else

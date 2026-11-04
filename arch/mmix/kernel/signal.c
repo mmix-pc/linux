@@ -302,8 +302,10 @@ static bool valid_context(const struct mmix_signal_activation *activation,
 	    memcmp(&uc->uc_mcontext.sc_rstack, &activation->state.pending,
 		   sizeof(activation->state.pending)))
 		return false;
-	/* Only a completed no-replay continuation admits machine-context edits. */
-	if (!(activation->regs.r_xx >> 63) && memcmp(regs, old, sizeof(*regs)))
+	/* Privileged PUT has no effects (MMIXware 37); a new PC abandons it. */
+	if (!(activation->regs.r_xx >> 63) && memcmp(regs, old, sizeof(*regs)) &&
+	    !(regs->pc != old->pc && (activation->regs.r_xx & (1UL << 35)) &&
+	      (((u32)activation->regs.r_xx >> 24) & ~1U) == 0xf6))
 		return false;
 	return user_pc(regs->pc);
 }

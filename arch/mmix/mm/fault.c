@@ -6,6 +6,33 @@
 #include <linux/uaccess.h>
 #include <asm/tlbflush.h>
 #include "fault.h"
+#include "../kernel/ipi.h"
+
+/* IRQs stay masked through the final translation snapshot and return. */
+static pte_t *translation_pte_lock(struct mm_struct *mm, pmd_t *pmd,
+				   unsigned long address, spinlock_t **ptlp)
+{
+	/* Lock paired with the mapped leaf table, revalidated before modification. */
+	spinlock_t *ptl;
+	pmd_t pmdval;
+	pte_t *ptep;
+
+	for (;;) {
+		ptep = pte_offset_map_rw_nolock(mm, pmd, address, &pmdval, &ptl);
+		if (!ptep)
+			return NULL;
+		/* A remote PTL holder may be waiting for this CPU's masked IPI. */
+		while (!spin_trylock(ptl)) {
+			mmix_ipi_flush_poll();
+			cpu_relax();
+		}
+		if (likely(pmd_same(pmdval, pmdp_get_lockless(pmd)))) {
+			*ptlp = ptl;
+			return ptep;
+		}
+		pte_unmap_unlock(ptep, ptl);
+	}
+}
 
 static int complete_translation(struct mm_struct *mm, struct pt_regs *regs)
 {
@@ -15,7 +42,7 @@ static int complete_translation(struct mm_struct *mm, struct pt_regs *regs)
 	pud_t *pud = pud_offset(p4d, address);
 	pmd_t *pmd;
 	pte_t *ptep, pte;
-	/* Leaf page-table lock acquired by pte_offset_map_lock(). */
+	/* Leaf page-table lock acquired while servicing incoming shootdowns. */
 	spinlock_t *ptl;
 
 	if (regs->r_xx >> 32 != 0x03000000UL)
@@ -25,9 +52,10 @@ static int complete_translation(struct mm_struct *mm, struct pt_regs *regs)
 	pmd = pmd_offset(pud, address);
 	if (pmd_none(*pmd) || pmd_bad(*pmd))
 		return SIGSEGV;
-	ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
+	ptep = translation_pte_lock(mm, pmd, address, &ptl);
 	if (!ptep)
 		return SIGSEGV;
+	/* No flush polling after this snapshot: a later revocation must await IPI. */
 	pte = ptep_get(ptep);
 	if (pte_present(pte)) {
 		pte = pte_mkyoung(pte);

@@ -196,6 +196,22 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	return 0;
 }
 
+/* Validate aligned register tails eight octas per loop on the common zero path. */
+static bool has_nonzero_word(const __u64 *words, size_t count)
+{
+	while (count >= 8) {
+		if (words[0] | words[1] | words[2] | words[3] |
+		    words[4] | words[5] | words[6] | words[7])
+			return true;
+		words += 8;
+		count -= 8;
+	}
+	while (count--)
+		if (*words++)
+			return true;
+	return false;
+}
+
 static int validate_snapshot(const struct mmix_user_state *s)
 {
 	const struct user_regs_struct *r = &s->regs;
@@ -209,9 +225,8 @@ static int validate_snapshot(const struct mmix_user_state *s)
 	    r->r_o - p->start != p->count * sizeof(unsigned long) ||
 	    r->regs[254] > MMIX_TASK_SIZE || (r->regs[254] & 7) ||
 	    (r->r_a & ~0x3ffffUL) ||
-	    memchr_inv(r->regs + r->r_l, 0, (230 - r->r_l) * sizeof(unsigned long)) ||
-	    memchr_inv(p->data + p->count, 0,
-		       (MMIX_RSTACK_MAX_WORDS - p->count) * sizeof(unsigned long)))
+	    has_nonzero_word(r->regs + r->r_l, 230 - r->r_l) ||
+	    has_nonzero_word(p->data + p->count, MMIX_RSTACK_MAX_WORDS - p->count))
 		return -EINVAL;
 	return 0;
 }

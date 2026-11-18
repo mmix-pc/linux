@@ -285,7 +285,7 @@ int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
 
 	if (mmix_user_rstack_validate(s))
 		return -EINVAL;
-	memset(stack->shadow, 0, MMIX_USER_SHADOW_PAGES * PAGE_SIZE);
+	/* UNSAVE reads exactly the image written below, ending at *top. */
 	p = stack->shadow + r->r_o - start;
 	memcpy(p, r->regs, r->r_l * sizeof(unsigned long));
 	p += r->r_l;

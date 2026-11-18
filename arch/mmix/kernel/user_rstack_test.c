@@ -76,6 +76,8 @@ static void user_rstack_hardware(struct kunit *test)
 	schedule_timeout_uninterruptible(1);
 	/* Restore admission checks user SP separately from captured raw values. */
 	s->regs.regs[254] = MMIX_TASK_SIZE;
+	/* Rebuild from logical state with nonzero bytes outside the image. */
+	memset(shadow, 0xa5, MMIX_USER_SHADOW_PAGES * PAGE_SIZE);
 	KUNIT_ASSERT_EQ(test, mmix_user_rstack_restore(stack, discard_write, &count, &base, &top),
 			0);
 	KUNIT_EXPECT_EQ(test, count, s->pending.count);

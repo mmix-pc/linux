@@ -8,6 +8,20 @@ raw_copy_to_user:
 	OR r234,r231,0
 	OR r231,r233,0
 	BZ r231,3f
+	/* Aligned octas cannot straddle pages; count only completed stores. */
+	OR r235,r232,r234
+	AND r235,r235,7
+	BNZ r235,1f
+	CMPU r235,r231,8
+	BN r235,1f
+4:	LDOU r235,r232,0
+5:	STOU r235,r234,0
+	ADDU r232,r232,8
+	ADDU r234,r234,8
+	SUBU r231,r231,8
+	CMPU r235,r231,8
+	BNNB r235,4b
+	BZ r231,3f
 1:	LDBU r235,r232,0
 2:	STBU r235,r234,0
 	ADDU r232,r232,1
@@ -18,6 +32,8 @@ raw_copy_to_user:
 
 .pushsection __ex_table,"a"
 .balign 8
+.quad 4b,3b
+.quad 5b,3b
 .quad 1b,3b
 .quad 2b,3b
 .popsection

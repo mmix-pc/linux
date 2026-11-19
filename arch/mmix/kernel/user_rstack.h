@@ -34,8 +34,10 @@ void *mmix_user_rstack_shadow(struct mmix_user_rstack_state *stack);
 void *mmix_user_rstack_continuation(struct mmix_user_rstack_state *stack);
 int mmix_user_rstack_window(const struct mmix_user_capture *capture, unsigned long *base,
 			    unsigned long *size);
+/* Pass the interrupted global bank on trap entry, or NULL for a raw SAVE image. */
 int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
-			     const struct mmix_user_capture *capture, unsigned long pc);
+			     const struct mmix_user_capture *capture, unsigned long pc,
+			     const unsigned long *interrupted_globals);
 int mmix_user_rstack_validate(const struct mmix_user_state *state);
 int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,
 				 int (*write)(void *, unsigned long, const void *, size_t),

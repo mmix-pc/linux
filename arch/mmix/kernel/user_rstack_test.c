@@ -58,7 +58,7 @@ static void user_rstack_hardware(struct kunit *test)
 	KUNIT_ASSERT_EQ(test, mmix_user_rstack_window(&c, &base, &size), 0);
 	shadow = mmix_user_rstack_shadow(stack);
 	memcpy(shadow + c.r_s - base, f->data, f->top + 8 - f->r_s);
-	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), 0);
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), 0);
 	s = mmix_user_rstack_state(stack);
 	KUNIT_EXPECT_EQ(test, s->regs.regs[0], 0UL);
 	KUNIT_EXPECT_EQ(test, s->regs.regs[29], 0x55UL);
@@ -98,7 +98,7 @@ static void user_rstack_validation(struct kunit *test)
 	struct mmix_user_state *s;
 	struct mmix_user_capture c = { 230, 0, 0x602000, 0x602000, 0x600000 };
 	unsigned long base = 1, top = 2, size, partial[2] = {};
-	unsigned long *shadow, *rc;
+	unsigned long *shadow, *rc, globals[26] = {};
 	unsigned int i;
 
 	KUNIT_ASSERT_NOT_NULL(test, stack);
@@ -110,7 +110,7 @@ static void user_rstack_validation(struct kunit *test)
 	for (i = 0; i < 1024; i++)
 		rc[i] = i ^ 0xabcdefUL;
 	shadow[(c.r_o - base) / 8 + 39] = 230UL << 56;
-	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), 0);
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), 0);
 	KUNIT_EXPECT_EQ(test, s->pending.count, 1024ULL);
 	for (i = 0; i < 1024; i++)
 		KUNIT_EXPECT_EQ(test, s->pending.data[i], (unsigned long long)(i ^ 0xabcdefUL));
@@ -123,9 +123,20 @@ static void user_rstack_validation(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, partial[0], 0xabcdefUL);
 	KUNIT_EXPECT_EQ(test, partial[1], 0xabcdeeUL);
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_restore(stack, NULL, NULL, &base, &top), -EINVAL);
+	/* The entry frame supplies globals independently of the SAVE scratch values. */
+	globals[0] = 0x2345;
+	globals[254 - 230] = MMIX_TASK_SIZE;
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, globals), 0);
+	KUNIT_EXPECT_EQ(test, memcmp(globals, s->regs.regs + 230, sizeof(globals)), 0);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), 0);
+	globals[254 - 230] = 7;
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, globals), -EINVAL);
+	globals[254 - 230] = MMIX_TASK_SIZE + 8;
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, globals), -EINVAL);
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), 0);
 	/* Invalid capture must not partially publish state. */
 	c.r_g = 229;
-	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), -EINVAL);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), -EINVAL);
 	KUNIT_EXPECT_EQ(test, s->pending.count, 1024ULL);
 	c.r_g = 230;
 	c.r_l = 231;
@@ -172,16 +183,16 @@ static void user_rstack_validation(struct kunit *test)
 	shadow[(c.r_o - base) / 8 + c.r_l] = c.r_l;
 	shadow[(c.r_o - base) / 8 + c.r_l + 39] = 230UL << 56;
 	shadow[3 * PAGE_SIZE / 8] = 0x12345678;
-	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), 0);
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), 0);
 	KUNIT_EXPECT_EQ(test, s->pending.count, 1024ULL);
 	KUNIT_EXPECT_EQ(test, s->regs.r_l, 230ULL);
 	KUNIT_EXPECT_EQ(test, shadow[3 * PAGE_SIZE / 8], 0x12345678UL);
 	shadow[(c.r_o - base) / 8 + c.r_l] = 229;
-	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), -EINVAL);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), -EINVAL);
 	KUNIT_EXPECT_EQ(test, s->regs.r_l, 230ULL);
 	shadow[(c.r_o - base) / 8 + c.r_l] = 230;
 	shadow[(c.r_o - base) / 8 + c.r_l + 39] |= 1UL << 20;
-	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), -EINVAL);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), -EINVAL);
 	c.r_s++;
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_window(&c, &base, &size), -EINVAL);
 	c.r_s = PAGE_OFFSET;
@@ -197,7 +208,7 @@ static void user_rstack_validation(struct kunit *test)
 	shadow[(c.r_o - base) / 8 + 39] = 230UL << 56;
 	/* A shorter capture must clear both previously populated tails. */
 	memset(s, 0xa5, sizeof(*s));
-	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), 0);
+	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000, NULL), 0);
 	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), 0);
 	KUNIT_EXPECT_EQ(test, s->pending.count, 11ULL);
 	KUNIT_EXPECT_EQ(test, s->pending.data[0], 0x1122ULL);

@@ -340,15 +340,12 @@ int mmix_user_dispatch(struct mmix_user_entry *entry)
 		entry->error = -EINVAL;
 		return 1;
 	}
-	error = mmix_user_rstack_capture(entry->stack, &entry->capture, regs->r_ww);
+	error = mmix_user_rstack_capture(entry->stack, &entry->capture, regs->r_ww,
+					 regs->regs + 230);
 	if (error)
 		goto failed;
-	/* SAVE's scratch globals are not the interrupted user register values. */
-	memcpy(state->regs.regs + 230, regs->regs + 230, 26 * sizeof(unsigned long));
-	error = mmix_user_rstack_validate(state);
-	if (error)
-		goto failed;
-	memcpy(regs->regs, state->regs.regs, sizeof(regs->regs));
+	/* The interrupted globals are already in the entry frame. */
+	memcpy(regs->regs, state->regs.regs, 230 * sizeof(*regs->regs));
 	regs->pc = regs->r_ww;
 	regs->syscall_nr = -1;
 	entry->ptrace_redirect = false;

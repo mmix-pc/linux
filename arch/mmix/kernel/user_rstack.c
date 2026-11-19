@@ -155,8 +155,14 @@ static void decode_specials(struct user_regs_struct *r, const unsigned long *p)
 	r->r_z = p[11];
 }
 
+static bool valid_user_sp(unsigned long sp)
+{
+	return sp <= MMIX_TASK_SIZE && !(sp & 7);
+}
+
 int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
-			     const struct mmix_user_capture *c, unsigned long pc)
+			     const struct mmix_user_capture *c, unsigned long pc,
+			     const unsigned long *interrupted_globals)
 {
 	struct mmix_user_state *s = &stack->state;
 	unsigned long base, size, ga, prefix_bytes;
@@ -179,7 +185,8 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	s->regs.r_o = c->r_o;
 	s->regs.r_a = ga & 0x3ffff;
 	memcpy(s->regs.regs, locals, c->r_l * sizeof(unsigned long));
-	memcpy(s->regs.regs + 230, globals, 26 * sizeof(unsigned long));
+	/* SAVE uses scratch globals during trap entry. */
+	memcpy(s->regs.regs + 230, interrupted_globals ?: globals, 26 * sizeof(*globals));
 	decode_specials(&s->regs, specials);
 	s->pending.start = c->start;
 	s->pending.count = (c->r_o - c->start) / sizeof(unsigned long);
@@ -193,6 +200,9 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 		       c->r_o - c->r_s);
 	memset(s->pending.data + s->pending.count, 0,
 	       sizeof(s->pending.data) - (c->r_o - c->start));
+	/* Capture established the geometry and both zero tails; entry supplies SP. */
+	if (interrupted_globals && !valid_user_sp(s->regs.regs[254]))
+		return -EINVAL;
 	return 0;
 }
 
@@ -223,7 +233,7 @@ static int validate_snapshot(const struct mmix_user_state *s)
 	c.r_s = p->start;
 	if (p->count > MMIX_RSTACK_MAX_WORDS || mmix_user_rstack_window(&c, &base, &size) ||
 	    r->r_o - p->start != p->count * sizeof(unsigned long) ||
-	    r->regs[254] > MMIX_TASK_SIZE || (r->regs[254] & 7) ||
+	    !valid_user_sp(r->regs[254]) ||
 	    (r->r_a & ~0x3ffffUL) ||
 	    has_nonzero_word(r->regs + r->r_l, 230 - r->r_l) ||
 	    has_nonzero_word(p->data + p->count, MMIX_RSTACK_MAX_WORDS - p->count))

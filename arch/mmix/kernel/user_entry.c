@@ -86,6 +86,8 @@ static int prepare_return(struct mmix_user_entry *entry)
 {
 	struct mmix_user_state *state = mmix_user_rstack_state(entry->stack);
 	struct mmix_rstack_domain *domain = NULL;
+	bool reuse_validation = entry->ops->write == mmix_user_write &&
+			       !entry->rstack_sync_pending && !entry->rstack_query_pending;
 	unsigned long base, top, flags;
 	int error;
 
@@ -121,8 +123,13 @@ static int prepare_return(struct mmix_user_entry *entry)
 						     sizeof(entry->rstack_query)) ? -EFAULT : 0;
 		entry->rstack_query_pending = false;
 	}
-	if (!error)
-		error = mmix_user_rstack_prepare(entry->stack, &base, &top);
+	if (!error) {
+		/* The native write copies out without changing the validated snapshot. */
+		if (reuse_validation)
+			mmix_user_rstack_build_validated_shadow(entry->stack, &base, &top);
+		else
+			error = mmix_user_rstack_prepare(entry->stack, &base, &top);
+	}
 	local_irq_restore(flags);
 	if (error)
 		return error;

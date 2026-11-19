@@ -42,6 +42,9 @@ int mmix_user_rstack_validate(const struct mmix_user_state *state);
 int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,
 				 int (*write)(void *, unsigned long, const void *, size_t),
 				 void *arg);
+/* Caller owns a validated snapshot that has not changed since materialization. */
+void mmix_user_rstack_build_validated_shadow(struct mmix_user_rstack_state *stack,
+					     unsigned long *base, unsigned long *top);
 int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
 			     unsigned long *base, unsigned long *top);
 int mmix_user_rstack_restore(struct mmix_user_rstack_state *stack,

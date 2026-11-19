@@ -285,16 +285,14 @@ int mmix_user_rstack_materialize(struct mmix_user_rstack_state *stack,
 		     s->pending.count * sizeof(unsigned long));
 }
 
-int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
-			     unsigned long *base, unsigned long *top)
+void mmix_user_rstack_build_validated_shadow(struct mmix_user_rstack_state *stack,
+					     unsigned long *base, unsigned long *top)
 {
 	struct mmix_user_state *s = &stack->state;
 	struct user_regs_struct *r = &s->regs;
 	unsigned long *p;
 	unsigned long start = s->pending.start & PAGE_MASK;
 
-	if (mmix_user_rstack_validate(s))
-		return -EINVAL;
 	/* UNSAVE reads exactly the image written below, ending at *top. */
 	p = stack->shadow + r->r_o - start;
 	memcpy(p, r->regs, r->r_l * sizeof(unsigned long));
@@ -317,6 +315,14 @@ int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
 	*p = r->r_g << 56 | r->r_a;
 	*base = start;
 	*top = r->r_o + (r->r_l + MMIX_USER_SAVE_WORDS - 1) * sizeof(unsigned long);
+}
+
+int mmix_user_rstack_prepare(struct mmix_user_rstack_state *stack,
+			     unsigned long *base, unsigned long *top)
+{
+	if (mmix_user_rstack_validate(&stack->state))
+		return -EINVAL;
+	mmix_user_rstack_build_validated_shadow(stack, base, top);
 	return 0;
 }
 

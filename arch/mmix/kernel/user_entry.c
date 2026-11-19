@@ -144,6 +144,7 @@ static int prepare_return(struct mmix_user_entry *entry)
 static int return_to_user(struct mmix_user_entry *entry)
 {
 	bool native = entry->ops->write == mmix_user_write && current->thread.rstack_chain;
+	bool regs_published = false;
 	int error;
 
 	if (!native)
@@ -160,6 +161,8 @@ static int return_to_user(struct mmix_user_entry *entry)
 		local_irq_enable();
 		if (test_syscall_work(SYSCALL_TRACE))
 			ptrace_report_syscall_exit(task_pt_regs(current), 0);
+		else
+			regs_published = true;
 		local_irq_disable();
 	}
 	/* A request made at syscall entry/event finishes the current syscall,
@@ -181,13 +184,19 @@ static int return_to_user(struct mmix_user_entry *entry)
 		unsigned long pc;
 
 		local_irq_enable();
-		if (need_resched())
+		if (need_resched()) {
 			schedule();
+			regs_published = false;
+		}
 		if (test_thread_flag(TIF_NOTIFY_RESUME)) {
 			mmix_ptrace_publish(entry);
 			resume_user_mode_work(task_pt_regs(current));
+			regs_published = false;
 		}
-		mmix_ptrace_publish(entry);
+		/* An untraced syscall exit already published this register image. */
+		if (!regs_published)
+			mmix_ptrace_publish(entry);
+		regs_published = false;
 		error = mmix_signal_pending(entry, false);
 		local_irq_disable();
 		if (error < 0)

@@ -195,7 +195,10 @@ static void user_rstack_validation(struct kunit *test)
 	for (i = 0; i < 9; i++)
 		shadow[(c.r_s - base) / 8 + i] = 0x5500 + i;
 	shadow[(c.r_o - base) / 8 + 39] = 230UL << 56;
+	/* A shorter capture must clear both previously populated tails. */
+	memset(s, 0xa5, sizeof(*s));
 	KUNIT_ASSERT_EQ(test, mmix_user_rstack_capture(stack, &c, 0x400000), 0);
+	KUNIT_EXPECT_EQ(test, mmix_user_rstack_validate(s), 0);
 	KUNIT_EXPECT_EQ(test, s->pending.count, 11ULL);
 	KUNIT_EXPECT_EQ(test, s->pending.data[0], 0x1122ULL);
 	KUNIT_EXPECT_EQ(test, s->pending.data[1], 0x3344ULL);

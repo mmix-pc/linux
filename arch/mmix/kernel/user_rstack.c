@@ -159,7 +159,7 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 			     const struct mmix_user_capture *c, unsigned long pc)
 {
 	struct mmix_user_state *s = &stack->state;
-	unsigned long base, size, ga, i;
+	unsigned long base, size, ga, prefix_bytes;
 	unsigned long *locals, *globals, *specials;
 
 	/* MMIX retains the logical PC's low bits; only instruction fetch aligns. */
@@ -171,8 +171,8 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	ga = specials[12];
 	if (locals[c->r_l] != c->r_l || (ga >> 56) != c->r_g || (ga & ~(0xffUL << 56 | 0x3ffffUL)))
 		return -EINVAL;
-	/* Nothing below can fail; publish only after all metadata is validated. */
-	memset(s, 0, sizeof(*s));
+	/* Metadata is valid. Only unused register and pending slots need clearing. */
+	memset(s->regs.regs + c->r_l, 0, (c->r_g - c->r_l) * sizeof(*locals));
 	s->regs.pc = pc;
 	s->regs.r_g = c->r_g;
 	s->regs.r_l = c->r_l;
@@ -183,16 +183,16 @@ int mmix_user_rstack_capture(struct mmix_user_rstack_state *stack,
 	decode_specials(&s->regs, specials);
 	s->pending.start = c->start;
 	s->pending.count = (c->r_o - c->start) / sizeof(unsigned long);
-	for (i = 0; i < s->pending.count; i++) {
-		unsigned long address = c->start + i * sizeof(unsigned long);
-		const unsigned long *word;
-
-		if (address < c->r_s)
-			word = stack->continuation + (address & ~PAGE_MASK);
-		else
-			word = stack->shadow + address - base;
-		s->pending.data[i] = *word;
-	}
+	/* The continuation prefix fits in one page. SAVE supplies the rest. */
+	prefix_bytes = c->r_s - c->start;
+	if (prefix_bytes)
+		memcpy(s->pending.data, stack->continuation + offset_in_page(c->start),
+		       prefix_bytes);
+	if (c->r_s != c->r_o)
+		memcpy((void *)s->pending.data + prefix_bytes, stack->shadow + (c->r_s - base),
+		       c->r_o - c->r_s);
+	memset(s->pending.data + s->pending.count, 0,
+	       sizeof(s->pending.data) - (c->r_o - c->start));
 	return 0;
 }
 

@@ -187,6 +187,7 @@ static int return_to_user(struct mmix_user_entry *entry)
 			mmix_ptrace_publish(entry);
 			resume_user_mode_work(task_pt_regs(current));
 		}
+		mmix_ptrace_publish(entry);
 		error = mmix_signal_pending(entry, false);
 		local_irq_disable();
 		if (error < 0)
@@ -274,6 +275,7 @@ int mmix_user_enter(struct mmix_user_rstack_state *stack, const struct mmix_user
 	if (ops->write == mmix_user_write && current->thread.rstack_chain) {
 		local_irq_save(flags);
 		local_irq_enable();
+		mmix_ptrace_publish(entry);
 		error = mmix_signal_pending(entry, false);
 		local_irq_restore(flags);
 		if (error < 0) {

@@ -8,6 +8,7 @@ struct mmix_user_entry;
 struct mmix_user_state;
 struct task_struct;
 
+/* Publish the current logical registers before entering signal selection. */
 int mmix_signal_pending(struct mmix_user_entry *entry, bool materialized);
 int mmix_signal_jump(struct mmix_user_entry *entry, unsigned long address);
 int mmix_signal_return(struct mmix_user_entry *entry);

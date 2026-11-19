@@ -257,7 +257,6 @@ int mmix_signal_pending(struct mmix_user_entry *entry, bool materialized)
 	bool deliver, restarted;
 	int error;
 
-	mmix_ptrace_publish(entry);
 	if (entry->step_completed) {
 		struct task_struct *owner = entry->step_tracer;
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/export.h>
 #include <linux/init.h>
 #include <linux/initrd.h>
+#include <linux/io.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
 #include <linux/of_fdt.h>
@@ -55,6 +57,23 @@ void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
 {
 	max_zone_pfns[ZONE_NORMAL] = max_low_pfn;
 }
+
+void __iomem *ioremap_wc(phys_addr_t offset, size_t size)
+{
+	if (offset >= MMIX_IO_BASE)
+		return ioremap(offset, size);
+
+	/*
+	 * RAM-backed framebuffers have normal RAM attributes on MMIX.
+	 * The whole driver-requested range must lie in one no-map region.
+	 */
+	if (!size || size > MMIX_IO_BASE - offset ||
+	    !memblock_is_region_memory(offset, size) || memblock_is_map_memory(offset))
+		return NULL;
+
+	return (void __iomem *)__va(offset);
+}
+EXPORT_SYMBOL(ioremap_wc);
 
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
